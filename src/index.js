@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 // Utilities
-const isObj = (v) => v && typeof v === 'object';
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const toStr = (v) => v == null ? '' : String(v);
 const parseJSON = (s) => {
   if (s == null || s === '') return null;
@@ -17,19 +17,23 @@ const deepGet = (obj, path) => {
   }
   return cur;
 };
+
+const UNIT_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
 const parseDuration = (s) => {
   if (!s) return 0;
   const m = String(s).trim().match(/^(\d+)(ms|s|m|h)?$/i);
   if (!m) return 0;
-  const n = parseInt(m[1], 10);
   const unit = (m[2] || 'ms').toLowerCase();
-  switch (unit) {
-    case 'ms': return n;
-    case 's': return n * 1000;
-    case 'm': return n * 60_000;
-    case 'h': return n * 3_600_000;
-    default: return n;
+  return parseInt(m[1], 10) * (UNIT_MS[unit] || 1);
+};
+
+const http = (method, url, body, headers) => {
+  const init = { method, headers: headers ? { ...headers } : {} };
+  if (body !== undefined) {
+    init.body = JSON.stringify(body);
+    init.headers = { 'Content-Type': 'application/json', ...init.headers };
   }
+  return fetch(url, init);
 };
 
 // Global registry
@@ -49,23 +53,12 @@ const REF_RE = /@([a-zA-Z_][\w$]*)/g;
 const preprocessExpr = (expr) => String(expr).replace(REF_RE, 'ctx.$ref("$1")');
 
 // Evaluation in restricted context
-function evalInContext(expr, ctx, extra = {}) {
-  const code = preprocessExpr(expr);
-  // Construct a function with provided names in scope
-  const names = Object.keys(extra);
-  const vals = Object.values(extra);
-  // Use Function constructor to avoid with/eval pollution; pass ctx explicitly
-  const fn = new Function('ctx', ...names, `return ( ${code} );`);
-  const ctxWithLocals = Object.assign({}, ctx, { $locals: extra });
-  return fn(ctxWithLocals, ...vals);
-}
-
-// Statement runner for jtx-on (semicolon separated)
-function runStatements(code, ctx, extra = {}) {
+function execute(code, ctx, extra = {}, asExpr = true) {
   const src = preprocessExpr(code);
   const names = Object.keys(extra);
   const vals = Object.values(extra);
-  const fn = new Function('ctx', ...names, src);
+  const body = asExpr ? `return ( ${src} );` : src;
+  const fn = new Function('ctx', ...names, body);
   const ctxWithLocals = Object.assign({}, ctx, { $locals: extra });
   return fn(ctxWithLocals, ...vals);
 }
@@ -93,7 +86,8 @@ function makeStateRef(state) {
           if (lc in state.value) state.value[lc] = value; else state.value[prop] = value;
         }
         state.pendingKeys.add(String(prop));
-      } else {
+      }
+      else {
         state.value[prop] = value;
         state.pendingKeys.add(String(prop));
       }
@@ -156,11 +150,11 @@ function buildCtx(currentEl, currentEvent) {
       if (meta?.type === 'src') return refreshSource(meta.name);
       console.warn('[JTX] refresh() expects a source name or @source');
     },
-    post: (url, body, headers) => fetch(url, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...(headers || {}) } }),
-    get: (url, headers) => fetch(url, { headers: headers || {} }),
-    put: (url, body, headers) => fetch(url, { method: 'PUT', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...(headers || {}) } }),
-    patch: (url, body, headers) => fetch(url, { method: 'PATCH', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...(headers || {}) } }),
-    del: (url, headers) => fetch(url, { method: 'DELETE', headers: headers || {} }),
+    post: (url, body, headers) => http('POST', url, body, headers),
+    get: (url, headers) => http('GET', url, undefined, headers),
+    put: (url, body, headers) => http('PUT', url, body, headers),
+    patch: (url, body, headers) => http('PATCH', url, body, headers),
+    del: (url, headers) => http('DELETE', url, undefined, headers),
     $event: currentEvent,
     $el: currentEl,
   };
@@ -313,10 +307,12 @@ function initSrc(el) {
 
 function parseFetchModes(attr) {
   const out = new Set();
-  if (!attr || !attr.trim()) { out.add('onload'); return out; }
+  if (!attr || !attr.trim()) {
+    out.add('onload');
+    return out;
+  }
   for (const part of attr.split(',').map((s) => s.trim()).filter(Boolean)) {
-    if (part.startsWith('every ')) out.add(part);
-    else out.add(part);
+    out.add(part);
   }
   return out;
 }
@@ -340,7 +336,8 @@ function setupFetchModes(src) {
         }
       });
       io.observe(src.el);
-    } else {
+    }
+    else {
       // fallback to onload
       setTimeout(() => refreshSource(src.name), 0);
     }
@@ -369,12 +366,11 @@ async function refreshSource(name) {
 
 async function fetchHttpSource(src) {
   const url = src.url.startsWith('sse:') ? src.url.slice(4) : src.url;
-  const u = url;
   src.status = 'loading';
-  fire(src.el, 'fetch', { url: u, headers: src.headers });
+  fire(src.el, 'fetch', { url, headers: src.headers });
   scheduleRender();
   try {
-    const res = await fetch(u, { headers: src.headers });
+    const res = await fetch(url, { headers: src.headers });
     if (!res.ok) {
       const message = `HTTP ${res.status}`;
       src.error = { name: src.name, type: 'network', status: res.status, message };
@@ -405,10 +401,9 @@ function reopenStream(src) {
 }
 
 function closeStream(src) {
-  if (src.io) {
-    try { if (src.kind === 'sse') src.io.close(); else src.io.close(); } catch { /* ignore */ }
-    src.io = null;
-  }
+  if (!src.io) return;
+  try { src.io.close(); } catch { /* ignore */ }
+  src.io = null;
 }
 
 function openStream(src) {
@@ -436,7 +431,8 @@ function openStream(src) {
       src.error = { name: src.name, type: 'connection', message: e.message, raw: e };
       fire(src.el, 'error', src.error);
     }
-  } else if (src.kind === 'ws') {
+  }
+  else if (src.kind === 'ws') {
     try {
       const ws = new WebSocket(rawUrl);
       src.io = ws;
@@ -483,7 +479,7 @@ function addBinding(binding) {
 
 function safeEval(expr, el, extraCtx = {}) {
   try {
-    return evalInContext(expr, buildCtx(el, null), extraCtx);
+    return execute(expr, buildCtx(el, null), extraCtx, true);
   } catch (e) {
     console.error('[JTX] eval error in', expr, e);
     return undefined;
@@ -499,7 +495,8 @@ function bindIf(el, expr, locals) {
     if (ok && removed) {
       placeholder.replaceWith(el);
       removed = false;
-    } else if (!ok && !removed) {
+    }
+    else if (!ok && !removed) {
       el.replaceWith(placeholder);
       removed = true;
     }
@@ -547,7 +544,8 @@ function bindAttr(el, attr, expr, locals) {
     }
     if (v === true) {
       el.setAttribute(real, '');
-    } else {
+    }
+    else {
       el.setAttribute(real, String(v));
     }
   }
@@ -582,7 +580,8 @@ function bindModel(el, expr) {
       if (el.multiple && Array.isArray(v)) {
         const set = new Set(v.map(String));
         Array.from(el.options).forEach((opt) => { opt.selected = set.has(String(opt.value)); });
-      } else {
+      }
+      else {
         el.value = v == null ? '' : String(v);
       }
       return;
@@ -628,7 +627,8 @@ function bindModel(el, expr) {
       }
       cur[parts[parts.length - 1]] = newVal;
       st.pendingKeys.add(parts[0]);
-    } else {
+    }
+    else {
       st.value[key] = newVal;
       st.pendingKeys.add(key);
     }
@@ -656,7 +656,7 @@ function bindOn(el, expr, locals) {
       const ms = parseDuration(event.slice('every '.length));
       if (ms > 0) {
         const id = setInterval(() => {
-          try { runStatements(code, buildCtx(el, new CustomEvent('every')), locals || {}); } catch (e) { console.error('[JTX] jtx-on every error', e); }
+          try { execute(code, buildCtx(el, new CustomEvent('every')), locals || {}, false); } catch (e) { console.error('[JTX] jtx-on every error', e); }
           scheduleRender();
         }, ms);
         timers.push(id);
@@ -664,7 +664,7 @@ function bindOn(el, expr, locals) {
       continue;
     }
     el.addEventListener(event, (ev) => {
-      try { runStatements(code, buildCtx(el, ev), locals || {}); } catch (e) { console.error('[JTX] jtx-on error', e); }
+      try { execute(code, buildCtx(el, ev), locals || {}, false); } catch (e) { console.error('[JTX] jtx-on error', e); }
       scheduleRender();
     });
   }
@@ -686,7 +686,8 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
     if (textExpr) {
       const v = safeEval(textExpr, el);
       el.textContent = v == null ? fallback : toStr(v);
-    } else if (htmlExpr) {
+    }
+    else if (htmlExpr) {
       const v = safeEval(htmlExpr, el);
       el.innerHTML = v == null ? fallback : toStr(v);
     }
@@ -736,9 +737,11 @@ function bindInsertList(el, forExpr) {
     let list = [];
     if (Array.isArray(coll)) {
       coll.forEach((v, i) => list.push({ k: String(i), v }));
-    } else if (isObj(coll)) {
+    }
+    else if (isObj(coll)) {
       Object.keys(coll).forEach((k2, i) => list.push({ k: k2, v: coll[k2], i }));
-    } else {
+    }
+    else {
       list = [{ k: '0', v: coll }];
     }
 
@@ -754,7 +757,7 @@ function bindInsertList(el, forExpr) {
         local['$root'] = coll;
         if (val) local[val] = it.v;
         if (keyVar) local[keyVar] = it.k;
-        const kVal = evalInContext(keyExpr, ctx, local);
+        const kVal = execute(keyExpr, ctx, local, true);
         return { k: String(kVal), v: it.v, i };
       });
     }
@@ -806,6 +809,15 @@ function bindAll(root) {
   bindAllIn(root);
 }
 
+const ATTR_BINDERS = {
+  'jtx-if': bindIf,
+  'jtx-show': bindShow,
+  'jtx-text': bindText,
+  'jtx-html': bindHtml,
+  'jtx-model': bindModel,
+  'jtx-on': bindOn,
+};
+
 function bindAllIn(root, perItemCtx) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
   let node = root.nodeType === 1 ? root : walker.nextNode();
@@ -829,13 +841,12 @@ function bindAllIn(root, perItemCtx) {
     }
     // attributes
     for (const { name: attrName, value } of Array.from(el.attributes)) {
-      if (attrName === 'jtx-if') bindIf(el, value, perItemCtx);
-      else if (attrName === 'jtx-show') bindShow(el, value, perItemCtx);
-      else if (attrName === 'jtx-text') bindText(el, value, perItemCtx);
-      else if (attrName === 'jtx-html') bindHtml(el, value, perItemCtx);
-      else if (attrName.startsWith('jtx-attr-')) bindAttr(el, attrName, value, perItemCtx);
-      else if (attrName === 'jtx-model') bindModel(el, value);
-      else if (attrName === 'jtx-on') bindOn(el, value, perItemCtx);
+      if (attrName.startsWith('jtx-attr-')) {
+        bindAttr(el, attrName, value, perItemCtx);
+      }
+      else if (ATTR_BINDERS[attrName]) {
+        ATTR_BINDERS[attrName](el, value, perItemCtx);
+      }
     }
     // mark as processed
     try { Object.defineProperty(el, '__jtxProcessed', { value: true, configurable: true }); } catch { /* ignore */ }
@@ -857,7 +868,8 @@ const JTX = {
 // Auto-init on DOMContentLoaded
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => JTX.init());
-} else {
+}
+else {
   JTX.init();
 }
 
