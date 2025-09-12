@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-import { registry, addBinding, scheduleRender } from './core.js';
+import { registry, runBinding, scheduleRender, recordDependency } from './core.js';
 import { safeEval, execute, buildCtx, preprocessExpr, unwrapRef } from './context.js';
 import { toStr, isObj, deepGet, parseDuration, structuredCloneSafe } from './utils.js';
 import { initState } from './state.js';
@@ -21,7 +21,7 @@ function bindIf(el, expr, locals) {
       removed = true;
     }
   }
-  addBinding({ el, type: 'if', update });
+  runBinding({ el, type: 'if', update });
 }
 
 // jtx-show: toggle hidden
@@ -31,7 +31,7 @@ function bindShow(el, expr, locals) {
     if (ok) el.removeAttribute('hidden');
     else el.setAttribute('hidden', '');
   }
-  addBinding({ el, type: 'show', update });
+  runBinding({ el, type: 'show', update });
 }
 
 // jtx-text
@@ -42,7 +42,7 @@ function bindText(el, expr, locals) {
     if (v === undefined || v === null) el.textContent = fallback;
     else el.textContent = toStr(v);
   }
-  addBinding({ el, type: 'text', update });
+  runBinding({ el, type: 'text', update });
 }
 
 // jtx-html
@@ -53,7 +53,7 @@ function bindHtml(el, expr, locals) {
     if (v === undefined || v === null) el.innerHTML = fallback;
     else el.innerHTML = toStr(v);
   }
-  addBinding({ el, type: 'html', update });
+  runBinding({ el, type: 'html', update });
 }
 
 // jtx-attr-*
@@ -71,7 +71,7 @@ function bindAttr(el, attr, expr, locals) {
       el.setAttribute(real, toStr(v));
     }
   }
-  addBinding({ el, type: 'attr', name: real, update });
+  runBinding({ el, type: 'attr', name: real, update });
 }
 
 // jtx-model
@@ -131,6 +131,7 @@ function bindModel(el, expr) {
   function pull() {
     const st = registry.states.get(stateName);
     if (!st) return;
+    recordDependency(st);
     const v = deepGet(st.value, key);
     writeModel(v);
   }
@@ -156,12 +157,13 @@ function bindModel(el, expr) {
       st.value[key] = newVal;
       st.pendingKeys.add(key);
     }
+    registry.changed.add(st);
     scheduleRender();
   }
 
   el.addEventListener('input', push);
   el.addEventListener('change', push);
-  addBinding({ el, type: 'model', update: pull });
+  runBinding({ el, type: 'model', update: pull });
 }
 
 // jtx-on
@@ -267,7 +269,7 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
     }
   }
 
-  addBinding({ el, type: 'insert-scalar', update });
+  runBinding({ el, type: 'insert-scalar', update });
 }
 
 function bindInsertList(el, forExpr) {
@@ -626,7 +628,7 @@ function bindInsertList(el, forExpr) {
     updateSlots(src?.status, currentItemNodes().length > 0);
   }
 
-  addBinding({ el, type: 'insert-list', update });
+  runBinding({ el, type: 'insert-list', update });
 }
 
 // Bind all supported attributes within a subtree

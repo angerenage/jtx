@@ -16,6 +16,7 @@ export function initSrc(el) {
 
   function updateStatus(status) {
     src.status = status;
+    registry.changed.add(src);
     for (const [key, node] of Object.entries(src.specialNodes)) {
       if (node) {
         if (src.status === key) node.removeAttribute('hidden');
@@ -156,6 +157,7 @@ async function fetchHttpSource(src) {
     if (!res.ok) {
       const message = `HTTP ${res.status}`;
       src.error = { name: src.name, type: 'network', status: res.status, message };
+      registry.changed.add(src);
       src.updateStatus('error');
       fire(src.el, 'error', src.error);
       scheduleRender();
@@ -168,12 +170,14 @@ async function fetchHttpSource(src) {
     if (src.select) value = deepGet(value, src.select);
 
     src.value = value;
+    registry.changed.add(src);
     src.updateStatus('ready');
     src.error = null;
     fire(src.el, 'update', { name: src.name, value });
     scheduleRender();
   } catch (e) {
     src.error = { name: src.name, type: 'network', message: e.message, raw: e };
+    registry.changed.add(src);
     src.updateStatus('error');
     fire(src.el, 'error', src.error);
     scheduleRender();
@@ -265,10 +269,13 @@ function handleStreamMessage(src, data, type, lastEventId) {
   try {
     const value = data === '' ? null : JSON.parse(data);
     src.value = src.select ? deepGet(value, src.select) : value;
+    registry.changed.add(src);
     fire(src.el, 'update', { name: src.name, value: src.value });
     scheduleRender();
   } catch (e) {
     src.error = { name: src.name, type: 'format', message: 'Invalid JSON', raw: e };
+    registry.changed.add(src);
     fire(src.el, 'error', src.error);
+    scheduleRender();
   }
 }

@@ -3,7 +3,10 @@
 export const registry = {
   states: new Map(), // name -> { name, el, value, persistedKeys:Set, urlKeys:Set, listeners:Set, pendingKeys:Set }
   srcs: new Map(),   // name -> { name, el, value, url, status, error, controller, kind, timers:[], io:null }
-  bindings: new Set(), // set of binding objects with update()
+  // Dependency tracking
+  bindingDeps: new Map(), // binding -> Set(deps)
+  depBindings: new Map(), // dep (state/src object) -> Set(bindings)
+  changed: new Set(), // deps that changed since last render
 };
 
 export const fire = (el, type, detail) => {
@@ -32,10 +35,57 @@ export function syncUrlFromState(st) {
   try { history.replaceState(null, '', newUrl); } catch { /* ignore */ }
 }
 
-export function runAllBindings() {
-  for (const b of registry.bindings) {
-    try { b.update(); } catch (e) { console.error('[JTX] binding error', e, b); }
+let currentBinding = null;
+
+export function runBinding(binding) {
+  currentBinding = binding;
+  // Remove previous deps
+  const prev = registry.bindingDeps.get(binding);
+  if (prev) {
+    for (const dep of prev) {
+      const set = registry.depBindings.get(dep);
+      if (set) {
+        set.delete(binding);
+        if (set.size === 0) registry.depBindings.delete(dep);
+      }
+    }
+    prev.clear();
   }
+  else {
+    registry.bindingDeps.set(binding, new Set());
+  }
+  try { binding.update(); } catch (e) { console.error('[JTX] binding error', e, binding); }
+  currentBinding = null;
+}
+
+export function recordDependency(dep) {
+  if (!currentBinding) return;
+  let deps = registry.bindingDeps.get(currentBinding);
+  if (!deps) {
+    deps = new Set();
+    registry.bindingDeps.set(currentBinding, deps);
+  }
+  if (!deps.has(dep)) {
+    deps.add(dep);
+    let set = registry.depBindings.get(dep);
+    if (!set) {
+      set = new Set();
+      registry.depBindings.set(dep, set);
+    }
+    set.add(currentBinding);
+  }
+}
+
+function runBindingsFor(deps) {
+  if (!deps || deps.size === 0) return;
+  const toRun = new Set();
+  for (const dep of deps) {
+    const set = registry.depBindings.get(dep);
+    if (set) {
+      for (const b of set) toRun.add(b);
+    }
+  }
+  for (const b of toRun) runBinding(b);
 }
 
 export function flushStateUpdates() {
@@ -63,12 +113,8 @@ export function scheduleRender() {
   queueMicrotask(() => {
     renderQueued = false;
     flushStateUpdates();
-    runAllBindings();
+    const deps = new Set(registry.changed);
+    registry.changed.clear();
+    runBindingsFor(deps);
   });
-}
-
-export function addBinding(binding) {
-  registry.bindings.add(binding);
-  // Initial run
-  try { binding.update(); } catch (e) { console.error('[JTX] binding error', e, binding); }
 }

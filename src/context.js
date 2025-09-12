@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-import { registry, scheduleRender, fire } from './core.js';
+import { registry, scheduleRender, fire, recordDependency } from './core.js';
 import { toStr, http } from './utils.js';
 import { refreshSource } from './source.js';
 
@@ -75,6 +75,7 @@ export function makeStateRef(state) {
         state.value[prop] = value;
         state.pendingKeys.add(toStr(prop));
       }
+      registry.changed.add(state);
       scheduleRender();
       return true;
     },
@@ -138,10 +139,21 @@ export function buildCtx(currentEl, currentEvent) {
       // Then resolve nearest scoped state in the DOM tree
       if (currentEl) {
         const local = findNearestLocalState(currentEl, name);
-        if (local) return makeStateRef(local);
+        if (local) {
+          recordDependency(local);
+          return makeStateRef(local);
+        }
       }
-      if (registry.states.has(name)) return makeStateRef(registry.states.get(name));
-      if (registry.srcs.has(name)) return makeSrcRef(registry.srcs.get(name));
+      if (registry.states.has(name)) {
+        const st = registry.states.get(name);
+        recordDependency(st);
+        return makeStateRef(st);
+      }
+      if (registry.srcs.has(name)) {
+        const src = registry.srcs.get(name);
+        recordDependency(src);
+        return makeSrcRef(src);
+      }
       console.warn(`[JTX] Unknown reference @${name}`);
       return {};
     },
