@@ -2,7 +2,7 @@
 
 export const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-export const toStr = (v) => v == null ? '' : ('' + v);
+export const toStr = (v) => v == null ? '' : String(v);
 
 export const parseJSON = (s) => {
   if (s == null || s === '') return null;
@@ -11,7 +11,7 @@ export const parseJSON = (s) => {
 
 export const deepGet = (obj, path) => {
   if (!path) return obj;
-  const parts = ('' + path).split('.');
+  const parts = String(path).split('.');
   let cur = obj;
   for (const p of parts) {
     if (cur == null) return undefined;
@@ -23,7 +23,7 @@ export const deepGet = (obj, path) => {
 const UNIT_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
 export const parseDuration = (s) => {
   if (!s) return 0;
-  const m = ('' + s).trim().match(/^(\d+)(ms|s|m|h)?$/i);
+  const m = String(s).trim().match(/^(\d+)(ms|s|m|h)?$/i);
   if (!m) return 0;
   const unit = (m[2] || 'ms').toLowerCase();
   return parseInt(m[1], 10) * (UNIT_MS[unit] || 1);

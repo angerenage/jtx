@@ -5,7 +5,7 @@ import { toStr, http } from './utils.js';
 import { refreshSource } from './source.js';
 
 export const REF_RE = /@([a-zA-Z_][\w$]*)/g;
-export const preprocessExpr = (expr) => ('' + expr).replace(REF_RE, 'ctx.$ref("$1")');
+export const preprocessExpr = (expr) => String(expr).replace(REF_RE, 'ctx.$ref("$1")');
 
 export function execute(code, ctx, extra = {}, asExpr = true) {
   const src = preprocessExpr(code);
@@ -39,7 +39,7 @@ export function makeStateRef(state) {
       const keys = Object.keys(val);
       if (keys.length === 1) return val[keys[0]];
     } catch { /* ignore */ }
-    try { return JSON.stringify(val); } catch { return ('' + val); }
+    try { return JSON.stringify(val); } catch { return String(val); }
   }
 
   return new Proxy({ [JTX_REF]: { type: 'state', name: state.name, target: state } }, {
@@ -48,11 +48,11 @@ export function makeStateRef(state) {
       if (prop === Symbol.toPrimitive) return (hint) => {
         const prim = stateDefaultPrimitive();
         if (hint === 'number') return typeof prim === 'number' ? prim : Number(prim);
-        if (hint === 'string') return prim == null ? '' : ('' + prim);
+        if (hint === 'string') return prim == null ? '' : String(prim);
         return prim;
       };
       if (prop === 'toJSON') return () => state.value;
-      if (prop === 'toString') return () => ('' + stateDefaultPrimitive());
+      if (prop === 'toString') return () => String(stateDefaultPrimitive());
       if (prop === 'valueOf') return () => stateDefaultPrimitive();
       if (typeof prop === 'string') {
         if (prop in state.value) return state.value[prop];
@@ -110,7 +110,7 @@ export function makeSrcRef(src) {
         const val = src.value;
         if (val == null) return '';
         if (typeof val !== 'object') return val;
-        try { return JSON.stringify(val); } catch { return ('' + val); }
+        try { return JSON.stringify(val); } catch { return String(val); }
       };
       if (prop in target) return target[prop];
       return src.value?.[prop];

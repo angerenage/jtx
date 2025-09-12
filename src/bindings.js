@@ -77,7 +77,7 @@ function bindAttr(el, attr, expr, locals) {
 // jtx-model
 function bindModel(el, expr) {
   // Expect @state.key
-  const m = ('' + expr).match(/^@([a-zA-Z_][\w$]*)\.(.+)$/);
+  const m = String(expr).match(/^@([a-zA-Z_][\w$]*)\.(.+)$/);
   if (!m) {
     console.warn('[JTX] jtx-model expects @state.key');
     return;
@@ -92,23 +92,23 @@ function bindModel(el, expr) {
         el.checked = !!v;
       }
       else if (t === 'radio') {
-        el.checked = ('' + el.value) === ('' + v);
+        el.checked = (String(el.value) === String(v));
       }
       else {
-        el.value = v == null ? '' : ('' + v);
+        el.value = toStr(v);
       }
     }
     else if (el instanceof HTMLSelectElement) {
       if (el.multiple && Array.isArray(v)) {
-        const set = new Set(v.map((x) => '' + x));
-        Array.from(el.options).forEach((opt) => { opt.selected = set.has('' + opt.value); });
+        const set = new Set(v.map((x) => String(x)));
+        Array.from(el.options).forEach((opt) => { opt.selected = set.has(String(opt.value)); });
       }
       else {
-        el.value = v == null ? '' : ('' + v);
+        el.value = toStr(v);
       }
     }
     else if (el instanceof HTMLTextAreaElement) {
-      el.value = v == null ? '' : ('' + v);
+      el.value = toStr(v);
     }
   }
 
@@ -170,7 +170,7 @@ function bindModel(el, expr) {
 const periodicMap = new WeakMap(); // el -> [timerIds]
 function bindOn(el, expr, locals) {
   // format: event: stmt; event2: stmt2; ...
-  const pairs = ('' + expr).split(/\s*;\s*/).filter(Boolean).map((pair) => {
+  const pairs = String(expr).split(/\s*;\s*/).filter(Boolean).map((pair) => {
     const idx = pair.indexOf(':');
     if (idx === -1) return null;
     const event = pair.slice(0, idx).trim();
@@ -214,22 +214,27 @@ function initInsert(el) {
 function bindInsertScalar(el, textExpr, htmlExpr) {
   const fallback = el.innerHTML;
 
-  const slots = { loading: null, error: null, empty: null };
-  for (const child of Array.from(el.children)) {
-    const tag = child.tagName?.toLowerCase();
-    if (tag === 'jtx-loading') {
-      slots.loading = child;
-      child.setAttribute('hidden', '');
+  function scanSlotsAndHide() {
+    const slots = { loading: null, error: null, empty: null };
+    for (const child of Array.from(el.children)) {
+      const tag = child.tagName?.toLowerCase();
+      if (tag === 'jtx-loading') {
+        slots.loading = child;
+        child.setAttribute('hidden', '');
+      }
+      else if (tag === 'jtx-error') {
+        slots.error = child;
+        child.setAttribute('hidden', '');
+      }
+      else if (tag === 'jtx-empty') {
+        slots.empty = child;
+        child.setAttribute('hidden', '');
+      }
     }
-    else if (tag === 'jtx-error') {
-      slots.error = child;
-      child.setAttribute('hidden', '');
-    }
-    else if (tag === 'jtx-empty') {
-      slots.empty = child;
-      child.setAttribute('hidden', '');
-    }
+    return slots;
   }
+
+  let slots = scanSlotsAndHide();
 
   function ownerSrc() {
     const srcEl = el.closest('jtx-src');
@@ -242,9 +247,9 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
   function updateSlots(status, hasValue) {
     const isLoading = status === 'loading';
     const isError = status === 'error';
+    const showEmpty = status === 'ready' && hasValue === false;
     if (slots.loading) isLoading ? slots.loading.removeAttribute('hidden') : slots.loading.setAttribute('hidden', '');
     if (slots.error) isError ? slots.error.removeAttribute('hidden') : slots.error.setAttribute('hidden', '');
-    const showEmpty = !isLoading && !isError && hasValue === false;
     if (slots.empty) showEmpty ? slots.empty.removeAttribute('hidden') : slots.empty.setAttribute('hidden', '');
   }
 
@@ -252,18 +257,39 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
     try {
       if (textExpr) {
         const v = safeEval(textExpr, el);
-        if (v === undefined || v === null) el.innerHTML = fallback; else el.textContent = toStr(v);
+
         const src = ownerSrc();
-        updateSlots(src?.status, v === null ? false : true);
+        const hasVal = src ? !(src.value == null || (Array.isArray(src.value) && src.value.length === 0)) : (v != null);
+
+        if (v === undefined || v === null || !hasVal) {
+          el.innerHTML = fallback;
+          slots = scanSlotsAndHide();
+        }
+        else {
+          el.textContent = toStr(v);
+        }
+
+        updateSlots(src?.status, hasVal);
       }
       else if (htmlExpr) {
         const v = safeEval(htmlExpr, el);
-        if (v === undefined || v === null) el.innerHTML = fallback; else el.innerHTML = toStr(v);
+
         const src = ownerSrc();
-        updateSlots(src?.status, v === null ? false : true);
+        const hasVal = src ? !(src.value == null || (Array.isArray(src.value) && src.value.length === 0)) : (v != null);
+
+        if (v === undefined || v === null || !hasVal) {
+          el.innerHTML = fallback;
+          slots = scanSlotsAndHide();
+        }
+        else {
+          el.innerHTML = toStr(v);
+        }
+
+        updateSlots(src?.status, hasVal);
       }
     } catch {
       el.innerHTML = fallback;
+      slots = scanSlotsAndHide();
       const src = ownerSrc();
       updateSlots(src?.status, false);
     }
@@ -274,7 +300,7 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
 
 function bindInsertList(el, forExpr) {
   // Parse left and right of `in`
-  const m = ('' + forExpr).match(/^(.+?)\s+in\s+(.+)$/);
+  const m = String(forExpr).match(/^(.+?)\s+in\s+(.+)$/);
   if (!m) {
     console.warn('[JTX] jtx-insert for expects syntax: item in <expr> or value,key in <expr>');
     return;
@@ -317,9 +343,9 @@ function bindInsertList(el, forExpr) {
   function updateSlots(status, hasItems) {
     const isLoading = status === 'loading';
     const isError = status === 'error';
+    const showEmpty = status === 'ready' && !hasItems;
     if (slotLoading) isLoading ? slotLoading.removeAttribute('hidden') : slotLoading.setAttribute('hidden', '');
     if (slotError) isError ? slotError.removeAttribute('hidden') : slotError.setAttribute('hidden', '');
-    const showEmpty = !isLoading && !isError && !hasItems;
     if (slotEmpty) showEmpty ? slotEmpty.removeAttribute('hidden') : slotEmpty.setAttribute('hidden', '');
   }
 
@@ -370,7 +396,7 @@ function bindInsertList(el, forExpr) {
   }
 
   function exprUsesLocal(expr, localNames) {
-    const s = '' + expr;
+    const s = String(expr);
     // crude detection of identifiers, good enough for our use
     for (const name of localNames) {
       if (!name) continue;

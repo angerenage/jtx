@@ -14,15 +14,31 @@ export function initSrc(el) {
     return;
   }
 
+  function updateEmptySlot() {
+    const node = src.specialNodes.empty;
+    if (!node) return;
+    // Show <jtx-empty> only after a fetch completes successfully
+    const isEmpty = (src.status === 'ready') && (src.value == null || (Array.isArray(src.value) && src.value.length === 0));
+    if (isEmpty) node.removeAttribute('hidden');
+    else node.setAttribute('hidden', '');
+  }
+
   function updateStatus(status) {
     src.status = status;
     registry.changed.add(src);
-    for (const [key, node] of Object.entries(src.specialNodes)) {
-      if (node) {
-        if (src.status === key) node.removeAttribute('hidden');
-        else node.setAttribute('hidden', '');
-      }
+
+    const loadingNode = src.specialNodes.loading;
+    const errorNode = src.specialNodes.error;
+    if (loadingNode) {
+      if (src.status === 'loading') loadingNode.removeAttribute('hidden');
+      else loadingNode.setAttribute('hidden', '');
     }
+    if (errorNode) {
+      if (src.status === 'error') errorNode.removeAttribute('hidden');
+      else errorNode.setAttribute('hidden', '');
+    }
+
+    updateEmptySlot();
   }
 
   const src = {
