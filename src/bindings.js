@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-import { registry, runBinding, scheduleRender, recordDependency } from './core.js';
+import { registry, runBinding, scheduleRender, recordDependency, registerCleanup, fire } from './core.js';
 import { safeEval, execute, buildCtx, preprocessExpr, unwrapRef } from './context.js';
 import { toStr, isObj, deepGet, parseDuration, structuredCloneSafe } from './utils.js';
 import { initState } from './state.js';
@@ -198,7 +198,17 @@ function bindOn(el, expr, locals) {
     });
   }
 
-  if (timers.length) periodicMap.set(el, timers);
+  if (timers.length) {
+    periodicMap.set(el, timers);
+    // Cleanup timers when element is removed
+    registerCleanup(el, () => {
+      const arr = periodicMap.get(el) || [];
+      for (const id of arr) {
+        try { clearInterval(id); } catch { /* ignore */ }
+      }
+      periodicMap.delete(el);
+    });
+  }
 }
 
 // <jtx-insert>
@@ -243,6 +253,7 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
   }
 
   function isSpecialNode(node) {
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
     const tag = node.tagName.toLowerCase();
     return tag === 'jtx-loading' || tag === 'jtx-error' || tag === 'jtx-empty';
   }
@@ -340,6 +351,8 @@ function bindInsertList(el, forExpr) {
   }
 
   const slots = scanSlots();
+  let prevCount = 0;
+  let initFired = false;
 
   function ownerSrc() {
     const srcEl = el.closest('jtx-src');
@@ -549,24 +562,21 @@ function bindInsertList(el, forExpr) {
 
   function computeKey(idx, item, rootVal) {
     if (keyExpr) {
-      try {
-        const itm = unwrapRef(item);
-        const root = unwrapRef(rootVal);
+      const itm = unwrapRef(item);
+      const root = unwrapRef(rootVal);
 
-        const baseLocals = Object.create(null);
-        baseLocals[valVar] = itm;
-        baseLocals.$ = itm;
-        baseLocals.$index = idx;
-        if (hasKeyVar) baseLocals[keyVar] = idx;
-        baseLocals.$root = root;
+      const baseLocals = Object.create(null);
+      baseLocals[valVar] = itm;
+      baseLocals.$ = itm;
+      baseLocals.$index = idx;
+      if (hasKeyVar) baseLocals[keyVar] = idx;
+      baseLocals.$root = root;
 
-        const order = [valVar, hasKeyVar ? keyVar : null, '$', '$index', '$root'].filter(Boolean);
+      const order = [valVar, hasKeyVar ? keyVar : null, '$', '$index', '$root'].filter(Boolean);
 
-        const v = evalWithLocalOrder(keyExpr, el, baseLocals, order);
-        return v == null ? idx : v;
-      } catch {
-        return idx;
-      }
+      const v = evalWithLocalOrder(keyExpr, el, baseLocals, order);
+      if (v == null) throw new Error('jtx-insert key evaluated to null/undefined');
+      return v;
     }
     return idx;
   }
@@ -581,13 +591,36 @@ function bindInsertList(el, forExpr) {
 
   function update() {
     let rootVal;
-    try { rootVal = unwrapRef(safeEval(rhsExpr, el)); } catch { rootVal = undefined; }
+    try { rootVal = unwrapRef(safeEval(rhsExpr, el)); } catch (e) {
+      // evaluation error in for-expression
+      try { el && el.ownerDocument && el.dispatchEvent && console.error('[JTX] jtx-insert for error', e); } catch { /* ignore */ }
+      fire(el, 'error', { error: e });
+      return;
+    }
     const entries = materializeList(rootVal);
+
+    // Pre-compute keys and validate duplicates when keyExpr is provided
+    let keyed;
+    try {
+      const seen = new Set();
+      keyed = entries.map(({ idx, item }) => {
+        const key = toStr(computeKey(idx, item, rootVal));
+        if (keyExpr) {
+          if (key === 'undefined' || key === 'null') throw new Error('jtx-insert key is undefined/null');
+          if (seen.has(key)) throw new Error('jtx-insert duplicate key: ' + key);
+          seen.add(key);
+        }
+        return { idx, item, key };
+      });
+    } catch (e) {
+      fire(el, 'error', { error: e });
+      return; // do not modify DOM on error
+    }
 
     if (strategy === 'replace') {
       const current = currentItemNodes();
-      if (current.length === entries.length) {
-        const desiredKeys = entries.map(({ idx, item }) => toStr(computeKey(idx, item, rootVal)));
+      if (current.length === keyed.length) {
+        const desiredKeys = keyed.map(({ key }) => key);
         let same = true;
 
         for (let i = 0; i < current.length; i++) {
@@ -601,6 +634,16 @@ function bindInsertList(el, forExpr) {
         if (same) {
           const src = ownerSrc();
           updateSlots(src?.status, current.length > 0);
+          // No structural change; consider this an update of existing items
+          if (current.length > 0) {
+            try { fire(el, 'update', { items: keyed.map(({ item }) => unwrapRef(item)) }); } catch { /* ignore */ }
+          }
+          if (!initFired && current.length > 0) {
+            fire(el, 'init', { count: current.length });
+            initFired = true;
+          }
+          if (current.length === 0 && prevCount !== 0) fire(el, 'empty', {});
+          prevCount = current.length;
           return;
         }
       }
@@ -613,56 +656,92 @@ function bindInsertList(el, forExpr) {
       }
 
       const frag = document.createDocumentFragment();
-      for (const { idx, item } of entries) {
-        const key = toStr(computeKey(idx, item, rootVal));
+      const addedItems = [];
+      const updatedItems = [];
+      for (const { idx, item, key } of keyed) {
         let node = existingMap.get(key);
         if (node) {
           existingMap.delete(key);
+          updatedItems.push(unwrapRef(item));
         }
         else {
           node = createNodeFor(idx, item, rootVal, key);
+          addedItems.push(unwrapRef(item));
         }
         frag.appendChild(node);
       }
 
-      for (const leftover of existingMap.values()) leftover.remove();
+      const removedKeys = [];
+      for (const [k, leftover] of existingMap.entries()) { removedKeys.push(k); leftover.remove(); }
 
       insertBeforeSpecial(frag);
       const src = ownerSrc();
-      updateSlots(src?.status, currentItemNodes().length > 0);
+      const newCount = currentItemNodes().length;
+      updateSlots(src?.status, newCount > 0);
+      if (!initFired && newCount > 0) { fire(el, 'init', { count: newCount }); initFired = true; }
+      if (addedItems.length) fire(el, 'add', { items: addedItems });
+      if (updatedItems.length) fire(el, 'update', { items: updatedItems });
+      if (removedKeys.length) fire(el, 'remove', { keys: removedKeys });
+      if (newCount === 0 && prevCount !== 0) fire(el, 'empty', {});
+      prevCount = newCount;
       return;
     }
 
     const existing = existingKeysSet();
-    for (const { idx, item } of entries) {
-      const k = toStr(computeKey(idx, item, rootVal));
-      if (existing.has(k)) continue;
+    const addedItems = [];
+    const updatedItems = [];
+    for (const { idx, item, key: k } of keyed) {
+      if (existing.has(k)) { updatedItems.push(unwrapRef(item)); continue; }
 
       const node = createNodeFor(idx, item, rootVal, k);
       if (strategy === 'prepend') insertAtStart(node);
       else insertBeforeSpecial(node);
 
       existing.add(k);
+      addedItems.push(unwrapRef(item));
     }
 
     if (windowSize != null && windowSize >= 0) {
       const items = currentItemNodes();
       if (items.length > windowSize) {
         const excess = items.length - windowSize;
+        const removedKeys = [];
         if (strategy === 'prepend') {
-          for (let i = 0; i < excess; i++) items[items.length - 1 - i]?.remove();
+          for (let i = 0; i < excess; i++) {
+            const n = items[items.length - 1 - i];
+            if (!n) continue;
+            const rk = n.getAttribute('jtx-key');
+            if (rk != null) removedKeys.push(rk);
+            n.remove();
+          }
         }
         else {
-          for (let i = 0; i < excess; i++) items[i]?.remove();
+          for (let i = 0; i < excess; i++) {
+            const n = items[i];
+            if (!n) continue;
+            const rk = n.getAttribute('jtx-key');
+            if (rk != null) removedKeys.push(rk);
+            n.remove();
+          }
         }
+        if (removedKeys.length) fire(el, 'remove', { keys: removedKeys });
       }
     }
 
     const src = ownerSrc();
-    updateSlots(src?.status, currentItemNodes().length > 0);
+    const countNow = currentItemNodes().length;
+    updateSlots(src?.status, countNow > 0);
+    if (!initFired && countNow > 0) { fire(el, 'init', { count: countNow }); initFired = true; }
+    if (addedItems.length) fire(el, 'add', { items: addedItems });
+    if (updatedItems.length) fire(el, 'update', { items: updatedItems });
+    if (countNow === 0 && prevCount !== 0) fire(el, 'empty', {});
+    prevCount = countNow;
   }
 
   runBinding({ el, type: 'insert-list', update });
+
+  // Fire clear when the insert is removed from DOM
+  registerCleanup(el, () => { try { fire(el, 'clear', {}); } catch { /* ignore */ } });
 }
 
 // Bind all supported attributes within a subtree

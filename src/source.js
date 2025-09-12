@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-import { registry, fire, scheduleRender } from './core.js';
+import { registry, fire, scheduleRender, registerCleanup } from './core.js';
 import { safeEval } from './context.js';
 import { deepGet, parseJSON, parseDuration } from './utils.js';
 
@@ -53,6 +53,7 @@ export function initSrc(el) {
     controller: null,
     kind: url.startsWith('sse:') ? 'sse' : (url.startsWith('ws:') || url.startsWith('wss:')) ? 'ws' : 'http',
     io: null, // EventSource or WebSocket
+    observer: null, // IntersectionObserver for visible mode
     value: undefined,
     updateStatus,
     status: 'idle',
@@ -94,6 +95,15 @@ export function initSrc(el) {
   fire(el, 'init', { name });
 
   setupFetchModes(src);
+
+  registerCleanup(el, () => {
+    try {
+      for (const id of src.timers) clearInterval(id);
+      src.timers.length = 0;
+    } catch { /* ignore */ }
+    try { if (src.observer) src.observer.disconnect(); } catch { /* ignore */ }
+    try { closeStream(src); } catch { /* ignore */ }
+  });
 }
 
 function parseFetchModes(attr) {
@@ -123,13 +133,13 @@ function setupFetchModes(src) {
 
   if (modes.has('visible') && src.kind === 'http') {
     if ('IntersectionObserver' in window) {
-      const io = new IntersectionObserver((entries, obs) => {
+      src.observer = new IntersectionObserver((entries, obs) => {
         if (entries.some((e) => e.isIntersecting)) {
           obs.disconnect();
           refreshSource(src.name);
         }
       });
-      io.observe(src.el);
+      src.observer.observe(src.el);
     }
     else {
       // fallback: just fetch after a bit
@@ -161,7 +171,7 @@ export async function refreshSource(name) {
 }
 
 async function fetchHttpSource(src) {
-  const url = src.url.startsWith('sse:') ? src.url.slice(4) : src.url;
+  const url = src.url;
 
   src.updateStatus('loading');
   fire(src.el, 'fetch', { url, headers: src.headers });
@@ -243,6 +253,7 @@ function openStream(src) {
       });
       if (src.sseEvent) {
         es.addEventListener(src.sseEvent, (ev) => {
+          try { fire(src.el, src.sseEvent, { name: src.name, type: src.sseEvent, data: ev.data, lastEventId: ev.lastEventId }); } catch { /* ignore */ }
           handleStreamMessage(src, ev.data, src.sseEvent, ev.lastEventId);
         });
       }

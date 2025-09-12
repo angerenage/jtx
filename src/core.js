@@ -9,6 +9,9 @@ export const registry = {
   changed: new Set(), // deps that changed since last render
 };
 
+const cleanupMap = new WeakMap(); // Element -> Set<fn>
+let cleanupObserver = null;
+
 export const fire = (el, type, detail) => {
   try { el.dispatchEvent(new CustomEvent(type, { detail, bubbles: true })); } catch { /* ignore */ }
 };
@@ -117,4 +120,54 @@ export function scheduleRender() {
     registry.changed.clear();
     runBindingsFor(deps);
   });
+}
+
+function ensureCleanupObserver() {
+  if (cleanupObserver) return;
+  try {
+    cleanupObserver = new MutationObserver((records) => {
+      for (const rec of records) {
+        for (const node of Array.from(rec.removedNodes)) {
+          runCleanupDeep(node);
+        }
+      }
+    });
+    const root = document.documentElement || document.body;
+    if (root) cleanupObserver.observe(root, { childList: true, subtree: true });
+  } catch { /* ignore */ }
+}
+
+function runCleanupDeep(node) {
+  try {
+    if (!node) return;
+    if (node.nodeType === 1) {
+      runCleanup(node);
+      const tree = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT, null);
+      let cur = tree.currentNode;
+      while (cur) {
+        if (cur !== node) runCleanup(cur);
+        cur = tree.nextNode();
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+function runCleanup(el) {
+  const fns = cleanupMap.get(el);
+  if (!fns || !fns.size) return;
+  for (const fn of Array.from(fns)) {
+    try { fn(); } catch { /* ignore */ }
+  }
+  cleanupMap.delete(el);
+}
+
+export function registerCleanup(el, fn) {
+  if (!el || typeof fn !== 'function') return;
+  ensureCleanupObserver();
+  let set = cleanupMap.get(el);
+  if (!set) {
+    set = new Set();
+    cleanupMap.set(el, set);
+  }
+  set.add(fn);
 }

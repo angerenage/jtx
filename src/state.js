@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import { registry, fire, parseUrlParams } from './core.js';
-import { safeEval } from './context.js';
+import { execute, buildCtx } from './context.js';
 import { structuredCloneSafe } from './utils.js';
 
 export function initState(el, locals, options) {
@@ -27,8 +27,12 @@ export function initState(el, locals, options) {
 
   for (const { name: attrName, value } of Array.from(el.attributes)) {
     if (attrName === 'name' || attrName === 'persist' || attrName === 'persist-url') continue;
-    const v = safeEval(value, el, locals || {});
-    st.value[attrName] = v;
+    try {
+      const v = execute(value, buildCtx(el, null), locals || {}, true);
+      st.value[attrName] = v;
+    } catch (e) {
+      fire(el, 'error', { name, error: e });
+    }
   }
 
   const persistAttr = el.getAttribute('persist');
@@ -38,7 +42,9 @@ export function initState(el, locals, options) {
       try {
         const raw = localStorage.getItem(`jtx:${name}:${key}`);
         if (raw != null) st.value[key] = JSON.parse(raw);
-      } catch { /* ignore */ }
+      } catch (e) {
+        fire(el, 'error', { name, error: e });
+      }
     }
   }
 
