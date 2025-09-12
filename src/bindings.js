@@ -242,6 +242,11 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
     return registry.srcs.get(name) || null;
   }
 
+  function isSpecialNode(node) {
+    const tag = node.tagName.toLowerCase();
+    return tag === 'jtx-loading' || tag === 'jtx-error' || tag === 'jtx-empty';
+  }
+
   function updateSlots(status, hasValue) {
     const isLoading = status === 'loading';
     const isError = status === 'error';
@@ -252,9 +257,7 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
 
     if ((slots.loading && isLoading) || (slots.error && isError) || (slots.empty && isEmpty)) {
       for (const child of Array.from(el.childNodes)) {
-        const tag = child.tagName?.toLowerCase();
-        if (['jtx-loading', 'jtx-error', 'jtx-empty'].includes(tag)) continue;
-        child.remove();
+        if (!isSpecialNode(child)) child.remove();
       }
     }
   }
@@ -279,9 +282,7 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
 
       if (v !== undefined && v !== null && hasVal) {
         for (const child of Array.from(el.childNodes)) {
-          const tag = child.tagName?.toLowerCase();
-          if (['jtx-loading', 'jtx-error', 'jtx-empty'].includes(tag)) continue;
-          child.remove();
+          if (!isSpecialNode(child)) child.remove();
         }
         el.insertAdjacentHTML('afterbegin', toStr(v));
       }
@@ -318,13 +319,27 @@ function bindInsertList(el, forExpr) {
   }
   if (template) template.setAttribute('hidden', '');
 
-  // Cache slot children
-  const slotLoading = Array.from(el.children).find((c) => c.tagName?.toLowerCase() === 'jtx-loading') || null;
-  if (slotLoading) slotLoading.setAttribute('hidden', '');
-  const slotError = Array.from(el.children).find((c) => c.tagName?.toLowerCase() === 'jtx-error') || null;
-  if (slotError) slotError.setAttribute('hidden', '');
-  const slotEmpty = Array.from(el.children).find((c) => c.tagName?.toLowerCase() === 'jtx-empty') || null;
-  if (slotEmpty) slotEmpty.setAttribute('hidden', '');
+  function scanSlots() {
+    const slots = { loading: null, error: null, empty: null };
+    for (const child of Array.from(el.children)) {
+      const tag = child.tagName?.toLowerCase();
+      if (tag === 'jtx-loading') {
+        slots.loading = child;
+        child.setAttribute('hidden', '');
+      }
+      else if (tag === 'jtx-error') {
+        slots.error = child;
+        child.setAttribute('hidden', '');
+      }
+      else if (tag === 'jtx-empty') {
+        slots.empty = child;
+        // Intentionally do NOT hide here so it's visible from the start
+      }
+    }
+    return slots;
+  }
+
+  const slots = scanSlots();
 
   function ownerSrc() {
     const srcEl = el.closest('jtx-src');
@@ -337,14 +352,13 @@ function bindInsertList(el, forExpr) {
   function updateSlots(status, hasItems) {
     const isLoading = status === 'loading';
     const isError = status === 'error';
-    const isEmpty = status === 'ready' && !hasItems;
-    if (slotLoading) isLoading ? slotLoading.removeAttribute('hidden') : slotLoading.setAttribute('hidden', '');
-    if (slotError) isError ? slotError.removeAttribute('hidden') : slotError.setAttribute('hidden', '');
-    if (slotEmpty) isEmpty ? slotEmpty.removeAttribute('hidden') : slotEmpty.setAttribute('hidden', '');
+    const isEmpty = !hasItems && !isLoading && !isError;
+    if (slots.loading) isLoading ? slots.loading.removeAttribute('hidden') : slots.loading.setAttribute('hidden', '');
+    if (slots.error) isError ? slots.error.removeAttribute('hidden') : slots.error.setAttribute('hidden', '');
+    if (slots.empty) isEmpty ? slots.empty.removeAttribute('hidden') : slots.empty.setAttribute('hidden', '');
   }
 
   function isSpecialNode(node) {
-    if (!(node instanceof Element)) return true;
     const tag = node.tagName.toLowerCase();
     return tag === 'jtx-template' || tag === 'jtx-loading' || tag === 'jtx-error' || tag === 'jtx-empty';
   }
