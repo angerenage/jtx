@@ -212,8 +212,6 @@ function initInsert(el) {
 }
 
 function bindInsertScalar(el, textExpr, htmlExpr) {
-  const fallback = el.innerHTML;
-
   function scanSlotsAndHide() {
     const slots = { loading: null, error: null, empty: null };
     for (const child of Array.from(el.children)) {
@@ -234,7 +232,7 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
     return slots;
   }
 
-  let slots = scanSlotsAndHide();
+  const slots = scanSlotsAndHide();
 
   function ownerSrc() {
     const srcEl = el.closest('jtx-src');
@@ -247,51 +245,47 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
   function updateSlots(status, hasValue) {
     const isLoading = status === 'loading';
     const isError = status === 'error';
-    const showEmpty = status === 'ready' && hasValue === false;
+    const isEmpty = status === 'ready' && hasValue === false;
     if (slots.loading) isLoading ? slots.loading.removeAttribute('hidden') : slots.loading.setAttribute('hidden', '');
     if (slots.error) isError ? slots.error.removeAttribute('hidden') : slots.error.setAttribute('hidden', '');
-    if (slots.empty) showEmpty ? slots.empty.removeAttribute('hidden') : slots.empty.setAttribute('hidden', '');
+    if (slots.empty) isEmpty ? slots.empty.removeAttribute('hidden') : slots.empty.setAttribute('hidden', '');
+
+    if ((slots.loading && isLoading) || (slots.error && isError) || (slots.empty && isEmpty)) {
+      for (const child of Array.from(el.childNodes)) {
+        const tag = child.tagName?.toLowerCase();
+        if (['jtx-loading', 'jtx-error', 'jtx-empty'].includes(tag)) continue;
+        child.remove();
+      }
+    }
   }
 
   function update() {
-    try {
-      if (textExpr) {
-        const v = safeEval(textExpr, el);
+    if (textExpr) {
+      const v = safeEval(textExpr, el);
 
-        const src = ownerSrc();
-        const hasVal = src ? !(src.value == null || (Array.isArray(src.value) && src.value.length === 0)) : (v != null);
-
-        if (v === undefined || v === null || !hasVal) {
-          el.innerHTML = fallback;
-          slots = scanSlotsAndHide();
-        }
-        else {
-          el.textContent = toStr(v);
-        }
-
-        updateSlots(src?.status, hasVal);
-      }
-      else if (htmlExpr) {
-        const v = safeEval(htmlExpr, el);
-
-        const src = ownerSrc();
-        const hasVal = src ? !(src.value == null || (Array.isArray(src.value) && src.value.length === 0)) : (v != null);
-
-        if (v === undefined || v === null || !hasVal) {
-          el.innerHTML = fallback;
-          slots = scanSlotsAndHide();
-        }
-        else {
-          el.innerHTML = toStr(v);
-        }
-
-        updateSlots(src?.status, hasVal);
-      }
-    } catch {
-      el.innerHTML = fallback;
-      slots = scanSlotsAndHide();
       const src = ownerSrc();
-      updateSlots(src?.status, false);
+      const hasVal = src ? !(src.value == null || (Array.isArray(src.value) && src.value.length === 0)) : (v != null);
+
+      if (v !== undefined && v !== null && hasVal) {
+        el.textContent = toStr(v);
+      }
+      updateSlots(src?.status, hasVal);
+    }
+    else if (htmlExpr) {
+      const v = safeEval(htmlExpr, el);
+
+      const src = ownerSrc();
+      const hasVal = src ? !(src.value == null || (Array.isArray(src.value) && src.value.length === 0)) : (v != null);
+
+      if (v !== undefined && v !== null && hasVal) {
+        for (const child of Array.from(el.childNodes)) {
+          const tag = child.tagName?.toLowerCase();
+          if (['jtx-loading', 'jtx-error', 'jtx-empty'].includes(tag)) continue;
+          child.remove();
+        }
+        el.insertAdjacentHTML('afterbegin', toStr(v));
+      }
+      updateSlots(src?.status, hasVal);
     }
   }
 
@@ -343,10 +337,10 @@ function bindInsertList(el, forExpr) {
   function updateSlots(status, hasItems) {
     const isLoading = status === 'loading';
     const isError = status === 'error';
-    const showEmpty = status === 'ready' && !hasItems;
+    const isEmpty = status === 'ready' && !hasItems;
     if (slotLoading) isLoading ? slotLoading.removeAttribute('hidden') : slotLoading.setAttribute('hidden', '');
     if (slotError) isError ? slotError.removeAttribute('hidden') : slotError.setAttribute('hidden', '');
-    if (slotEmpty) showEmpty ? slotEmpty.removeAttribute('hidden') : slotEmpty.setAttribute('hidden', '');
+    if (slotEmpty) isEmpty ? slotEmpty.removeAttribute('hidden') : slotEmpty.setAttribute('hidden', '');
   }
 
   function isSpecialNode(node) {
