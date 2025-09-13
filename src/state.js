@@ -31,6 +31,8 @@ export function initState(el, locals, options) {
       const v = execute(value, buildCtx(el, null), locals || {}, true);
       st.value[attrName] = v;
     } catch (e) {
+      // Ensure the key exists even if evaluation fails
+      if (!(attrName in st.value)) st.value[attrName] = undefined;
       fire(el, 'error', { name, error: e });
     }
   }

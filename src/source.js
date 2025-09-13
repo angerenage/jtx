@@ -59,6 +59,7 @@ export function initSrc(el) {
     status: 'idle',
     specialNodes: { loading: null, error: null, empty: null },
     error: null,
+    sseTypes: [], // extra SSE event types parsed from jtx-on
   };
 
   for (const child of el.children) {
@@ -95,6 +96,29 @@ export function initSrc(el) {
 
   registry.srcs.set(name, src);
   fire(el, 'init', { name });
+
+  // Parse jtx-on for custom SSE event names and store them
+  try {
+    const onAttr = el.getAttribute('jtx-on') || '';
+    if (onAttr && src.kind === 'sse') {
+      const std = new Set(['init', 'fetch', 'open', 'message', 'update', 'error', 'close']);
+      const parts = onAttr.split(/\s*;\s*/).filter(Boolean);
+      const types = new Set();
+
+      for (const p of parts) {
+        const idx = p.indexOf(':');
+        if (idx === -1) continue;
+
+        const evt = p.slice(0, idx).trim();
+        if (!evt || evt.toLowerCase().startsWith('every ')) continue;
+        if (std.has(evt)) continue;
+
+        types.add(evt);
+      }
+
+      src.sseTypes = Array.from(types);
+    }
+  } catch { /* ignore */ }
 
   setupFetchModes(src);
 
@@ -238,6 +262,7 @@ function closeStream(src) {
   if (!src.io) return;
   try { src.io.close(); } catch { /* ignore */ }
   src.io = null;
+  try { fire(src.el, 'close', { name: src.name }); } catch { /* ignore */ }
 }
 
 function normalizeSseUrl(u) {
@@ -266,16 +291,31 @@ function openStream(src) {
       src.io = es;
       src.updateStatus('ready');
       fire(src.el, 'open', { name: src.name, type: 'sse' });
+
       es.addEventListener('message', (ev) => {
         if (src.sseEvent) return; // filtered elsewhere
-        handleStreamMessage(src, ev.data, 'sse', ev.lastEventId);
+        // Default event type is 'message'; dispatch generic + update value
+        handleStreamMessage(src, ev.data, 'message', ev.lastEventId);
       });
+
       if (src.sseEvent) {
         es.addEventListener(src.sseEvent, (ev) => {
           try { fire(src.el, src.sseEvent, { name: src.name, type: src.sseEvent, data: ev.data, lastEventId: ev.lastEventId }); } catch { /* ignore */ }
           handleStreamMessage(src, ev.data, src.sseEvent, ev.lastEventId);
         });
       }
+
+      // Subscribe to any additional SSE event types referenced in jtx-on
+      const extras = (src.sseTypes || []).filter((t) => t && t !== src.sseEvent && t !== 'message');
+      for (const t of extras) {
+        try {
+          es.addEventListener(t, (ev) => {
+            try { fire(src.el, t, { name: src.name, type: t, data: ev.data, lastEventId: ev.lastEventId }); } catch { /* ignore */ }
+            if (!src.sseEvent) handleStreamMessage(src, ev.data, t, ev.lastEventId);
+          });
+        } catch { /* ignore */ }
+      }
+
       es.addEventListener('error', (ev) => {
         src.error = { name: src.name, type: 'connection', message: 'SSE error', raw: ev };
         fire(src.el, 'error', src.error);
