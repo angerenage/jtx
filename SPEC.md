@@ -179,7 +179,7 @@ If `<expr>` yields null, undefined or any non‑iterable value, it is coerced to
   - append merge: Keyed upsert, update existing items by key; append new keys; keys not present in the batch remain.
   - prepend merge: Keyed upsert, update existing items by key; prepend new keys; keys not present in the batch remain.
 
-- window (**required if strategy is not replace**) – integer specifying a window size. For example, window="200" keeps at most 200 items in the list. Items beyond are dropped from the DOM when new items arrive (from the start for append/append merge; from the end for prepend/prepend merge). This allows uncontrolled feeds to remain performant.
+- window – integer specifying a window size. For example, window="200" keeps at most 200 items in the list. Items beyond are dropped from the DOM when new items arrive (from the start for append/append merge; from the end for prepend/prepend merge). This allows uncontrolled feeds to remain performant.
 
 Children:
 

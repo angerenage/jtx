@@ -222,19 +222,21 @@ function bindOnSelf(el, expr, locals) {
     if (event.startsWith('every ')) {
       const ms = parseDuration(event.slice('every '.length));
       if (ms > 0) {
-        const id = setInterval(() => {
-          try { execute(code, buildCtx(el, new CustomEvent('every')), locals || {}, false); } catch (e) { console.error('[JTX] jtx-on every error', e); }
-          scheduleRender();
+        const id = setInterval(async () => {
+          try { await execute(code, buildCtx(el, new CustomEvent('every')), locals || {}, false); }
+          catch (e) { console.error('[JTX] jtx-on every error', e); }
+          finally { scheduleRender(); }
         }, ms);
         timers.push(id);
       }
       continue;
     }
 
-    el.addEventListener(event, (ev) => {
+    el.addEventListener(event, async (ev) => {
       if (ev.target !== el) return; // ignore bubbled events from children
-      try { execute(code, buildCtx(el, ev), locals || {}, false); } catch (e) { console.error('[JTX] jtx-on error', e); }
-      scheduleRender();
+      try { await execute(code, buildCtx(el, ev), locals || {}, false); }
+      catch (e) { console.error('[JTX] jtx-on error', e); }
+      finally { scheduleRender(); }
     });
   }
 
@@ -539,7 +541,7 @@ function bindInsertList(el, forExpr) {
     return false;
   }
 
-  function evalWithLocalOrder(expr, targetEl, locals, namesOrder) {
+  function evalWithLocalOrder(expr, targetEl, locals, namesOrder, throwOnError = false) {
     try {
       const src = preprocessExpr(expr);
       const ordered = namesOrder.filter((n) => n && Object.prototype.hasOwnProperty.call(locals, n));
@@ -547,7 +549,15 @@ function bindInsertList(el, forExpr) {
       const fn = new Function('ctx', ...ordered, `return ( ${src} );`);
       return fn(buildCtx(targetEl, null), ...vals);
     } catch (e) {
-      console.error('[JTX] eval locals error in', expr, e);
+      if (throwOnError) throw e;
+      // If this insert is owned by a <jtx-src> that isn't ready yet,
+      // skip logging – locals (e.g., item) are often undefined pre-init.
+      try {
+        const src = ownerSrc();
+        if (!src || src.status === 'ready') {
+          console.error('[JTX] eval locals error in', expr, e);
+        }
+      } catch { /* ignore logging issues */ }
       return undefined;
     }
   }
@@ -667,7 +677,7 @@ function bindInsertList(el, forExpr) {
     return node;
   }
 
-  function computeKey(idx, item, rootVal) {
+  function computeKey(idx, item, rootVal, strict = false) {
     if (keyExpr) {
       const itm = unwrapRef(item);
       const root = unwrapRef(rootVal);
@@ -681,7 +691,7 @@ function bindInsertList(el, forExpr) {
 
       const order = [valVar, hasKeyVar ? keyVar : null, '$', '$index', '$root'].filter(Boolean);
 
-      const v = evalWithLocalOrder(keyExpr, el, baseLocals, order);
+      const v = evalWithLocalOrder(keyExpr, el, baseLocals, order, !!strict);
       return v == null ? idx : v;
     }
     return idx;
@@ -691,11 +701,20 @@ function bindInsertList(el, forExpr) {
     const v = unwrapRef(value);
     if (Array.isArray(v)) return v.map((it, i) => ({ idx: i, item: unwrapRef(it) }));
     if (hasKeyVar && isObj(v)) return Object.keys(v).map((k) => ({ idx: k, item: unwrapRef(v[k]) }));
-    if (v === undefined || v === null) return [];
+    if (v === undefined || v === null) return [{ idx: 0, item: v }];
     return [{ idx: 0, item: unwrapRef(v) }];
   }
 
   function update() {
+    // If this insert is linked to a <jtx-src> that isn't ready yet, toggle slots.
+    try {
+      const src = ownerSrc();
+      if (src && src.status !== 'ready') {
+        const hasExisting = isMergeStrategy ? (mergeState.order.length > 0) : (currentItemNodes().length > 0);
+        updateSlots(src.status, hasExisting);
+      }
+    } catch { /* ignore and proceed */ }
+
     let rootVal;
     try { rootVal = unwrapRef(safeEval(rhsExpr, el)); } catch (e) {
       try { console.error('[JTX] jtx-insert for error', e); } catch { /* ignore */ }
@@ -709,7 +728,9 @@ function bindInsertList(el, forExpr) {
       const seen = new Set();
       for (let i = 0; i < entries.length; i++) {
         const { idx, item } = entries[i];
-        const rawKey = computeKey(idx, item, rootVal);
+        let rawKey;
+        try { rawKey = computeKey(idx, item, rootVal, true); }
+        catch (e) { fire(el, 'error', { error: e }); return; }
         const keyStr = toStr(rawKey);
         if (rawKey == null || keyStr === '') {
           fire(el, 'error', { error: new Error('jtx-insert: invalid key (null/undefined/empty)') });
@@ -802,7 +823,9 @@ function bindInsertList(el, forExpr) {
     const seenKeys = new Set();
     for (let i = 0; i < entries.length; i++) {
       const { idx, item } = entries[i];
-      const rawKey = computeKey(idx, item, rootVal);
+      let rawKey;
+      try { rawKey = computeKey(idx, item, rootVal, true); }
+      catch (e) { fire(el, 'error', { error: e }); return; }
       const keyStr = toStr(rawKey);
       if (rawKey == null || keyStr === '') {
         fire(el, 'error', { error: new Error('jtx-insert: invalid key (null/undefined/empty)') });
