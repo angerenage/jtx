@@ -2,7 +2,7 @@
 
 import { registry, runBinding, scheduleRender, recordDependency, registerCleanup, fire } from './core.js';
 import { safeEval, execute, buildCtx, preprocessExpr, unwrapRef } from './context.js';
-import { toStr, isObj, deepGet, parseDuration, structuredCloneSafe } from './utils.js';
+import { toStr, isObj, deepGet, parseDuration, structuredCloneSafe, parsePath, deepGetByPath, deepSetByPath } from './utils.js';
 import { initState } from './state.js';
 import { initSrc } from './source.js';
 
@@ -85,6 +85,8 @@ function bindModel(el, expr) {
 
   const stateName = m[1];
   const key = m[2];
+  const pathSegs = parsePath(key);
+  const topKey = pathSegs[0] ?? key;
   function writeModel(v) {
     if (el instanceof HTMLInputElement) {
       const t = el.type;
@@ -132,7 +134,7 @@ function bindModel(el, expr) {
     const st = registry.states.get(stateName);
     if (!st) return;
     recordDependency(st);
-    const v = deepGet(st.value, key);
+    const v = Array.isArray(pathSegs) && pathSegs.length ? deepGetByPath(st.value, pathSegs) : deepGet(st.value, key);
     writeModel(v);
   }
 
@@ -140,22 +142,13 @@ function bindModel(el, expr) {
     const st = registry.states.get(stateName);
     if (!st) return;
     const newVal = readModel();
-    // Assign top-level key only if simple; for nested paths, set root key if available.
-    if (key.includes('.')) {
-      // naive deep set
-      const parts = key.split('.');
-      let cur = st.value;
-      for (let i = 0; i < parts.length - 1; i++) {
-        const p = parts[i];
-        if (!isObj(cur[p])) cur[p] = {};
-        cur = cur[p];
-      }
-      cur[parts[parts.length - 1]] = newVal;
-      st.pendingKeys.add(parts[0]);
+    if (Array.isArray(pathSegs) && pathSegs.length > 1) {
+      deepSetByPath(st.value, pathSegs, newVal);
+      st.pendingKeys.add(topKey);
     }
     else {
-      st.value[key] = newVal;
-      st.pendingKeys.add(key);
+      st.value[topKey] = newVal;
+      st.pendingKeys.add(topKey);
     }
     registry.changed.add(st);
     scheduleRender();
