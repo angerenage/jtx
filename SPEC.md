@@ -132,7 +132,7 @@ jtx-src dispatches several events:
 | error | On HTTP network error, SSE/WS error or JSON parse error. | `{ name, type: 'network' \| 'format' \| 'connection', status?, message, raw? }` |
 | close | When an SSE or WS connection closes. | `{ name, code?, reason? }` |
 
-SSE event types are not mapped to event names by default. Use sse-event to filter to a single type; otherwise message fires for every SSE event. But by specifying an event name as a trigger, only that event will fire the code, even if it is not the listened sse-event.
+SSE event types are not mapped to event names by default. JTX also dispatches a DOM event named after it's type on the `<jtx-src>` (in addition to `message`).
 
 You can react to these events via jtx-on:
 
@@ -171,14 +171,15 @@ Attributes:
 
 If `<expr>` yields null, undefined or any non‑iterable value, it is coerced to a single‑element array `[<expr>]`. This allows a list to start with a single object and subsequently accumulate more items when new data arrives (e.g. via SSE).
 
-- key (*recommended*) – expression that yields a **stable string key** for each item. jtx uses this to identify DOM nodes when updating. If absent, the insert falls back to the current index or object key, which is not stable across updates.  
-- strategy (*optional*) – how to handle successive evaluations and updates. Options:  
-  - replace: **Removes** all current items and inserts the new ones from scratch. Emits remove for the previously present keys, then add for the new items.
-  - append: Adds the new items to the end, always. Applies window trimming (from the start), emitting remove for trimmed items.
-  - prepend: Adds the new items to the beginning, always (no de-dup by key). Applies window trimming (from the end) if configured, emitting remove.
-  - merge (after append or prepend): Replaces existing items by index and appends/prepend extra items; leaves others intact. Emits update for changed items, add for new items. Window as append/prepend.
+- key (*recommended*) – expression that yields a **stable string key** for each item. jtx uses this to identify items when merging. If absent, the insert falls back to the current index or object key.
+- strategy (*optional*) – how to handle successive evaluations and updates. Options:
+  - replace: Removes all current items and inserts the new ones from scratch (full rebuild).
+  - append: Adds the new items to the end, always.
+  - prepend: Adds the new items to the beginning, always.
+  - append merge: Keyed upsert, update existing items by key; append new keys; keys not present in the batch remain.
+  - prepend merge: Keyed upsert, update existing items by key; prepend new keys; keys not present in the batch remain.
 
-- window (**required if strategy is not replace**) – integer specifying a window size. For example, window="200" keeps at most 200 items in the list. Items beyond are dropped from the state and DOM when new items arrive. This allows uncontrolled feeds to remain performant.
+- window (**required if strategy is not replace**) – integer specifying a window size. For example, window="200" keeps at most 200 items in the list. Items beyond are dropped from the DOM when new items arrive (from the start for append/append merge; from the end for prepend/prepend merge). This allows uncontrolled feeds to remain performant.
 
 Children:
 
@@ -196,7 +197,7 @@ jtx-insert dispatches events as its internal list changes:
 | update | When existing items are updated (any strategy) or moved. | `{ items: [values] }` |
 | remove | When keys are removed (replace or due to window trimming). | `{ keys: [keyStrings] }` |
 | empty | When the internal list becomes empty. | `{ }` |
-| error | If evaluating for or key throws, or if duplicate/undefined keys occur. | `{ error }` |
+| error | If evaluating for or key throws. | `{ error }` |
 | clear | When the insert is disconnected from the DOM (e.g. removed). | `{ }` |
 
 The internal state of a `<jtx-insert>` – its current map or list – is **not exposed via @...**. If you need to inspect or mutate it, implement that logic in your handlers.
@@ -301,12 +302,12 @@ In version 1, expressions and handlers are evaluated with eval. You must ensure 
 
 Each SSE event updates `@events` with a new object. Because the insert's strategy is append, the list grows (up to 10 items) as events arrive.
 
-### **Polling with merge strategy and window**
+### **Polling with append merge strategy and window**
 
 ```html
 <jtx-src name="orders" url="/api/orders/updates" fetch="onload, every 2s">
   <ul>
-    <jtx-insert for="o in @orders" key="o.id" strategy="merge" window="100">
+    <jtx-insert for="o in @orders" key="o.id" strategy="append merge" window="100">
       <jtx-template>
         <li>
           <a jtx-attr-href="o.url" jtx-text="o.title"></a>

@@ -121,7 +121,7 @@ Events you can listen to on the `<jtx-src>` element:
 - `error`: `{ name, type, status?, message, raw? }` on network/parse/connection errors.
 - `open`: `{ name, type: 'sse' | 'ws' }` when a stream opens.
 - `close`: `{ name, code?, reason? }` when a stream closes.
-- `message`: `{ name, type, data, lastEventId? }` for raw SSE/WS messages.
+- `message`: `{ name, type, data, lastEventId? }` for raw SSE/WS messages. For SSE events, JTX also dispatches a DOM event named after it's type on the `<jtx-src>` in addition to `message`.
 
 ## Rendering Helpers (Attributes)
 Use these attributes anywhere in your HTML:
@@ -156,9 +156,14 @@ List insert:
 
 Options:
 - `for` (required for lists): `item in <expr>` or `value,key in <expr>`.
-- `key`: stable key per item (recommended).
-- `strategy`: `replace` (default), `append`, or `prepend` for streaming/accumulating data.
-- `window`: with `append`/`prepend`, optionally cap the number of rendered items.
+- `key`: stable key per item (recommended; required to accumulate with merge).
+- `strategy`:
+  - `replace` (default): remove all current items and insert the new ones from scratch.
+  - `append`: always add the received item(s) to the end.
+  - `prepend`: always add the received item(s) to the beginning.
+  - `append merge`: keyed upsert — update existing items by key; append new keys; respects `window` (trims from start).
+  - `prepend merge`: keyed upsert — update existing items by key; prepend new keys; respects `window` (trims from end).
+- `window`: required for merge strategies and optional for append/prepend — caps the number of rendered items.
 - Optional children: `jtx-loading`, `jtx-error`, `jtx-empty` (useful when nested under a `jtx-src`).
 
 ## Initialization Hooks
