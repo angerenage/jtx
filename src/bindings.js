@@ -211,6 +211,51 @@ function bindOn(el, expr, locals) {
   }
 }
 
+// jtx-on for definition elements (self-only)
+function bindOnSelf(el, expr, locals) {
+  // format: event: stmt; event2: stmt2; ...
+  const pairs = String(expr).split(/\s*;\s*/).filter(Boolean).map((pair) => {
+    const idx = pair.indexOf(':');
+    if (idx === -1) return null;
+    const event = pair.slice(0, idx).trim();
+    const code = pair.slice(idx + 1).trim();
+    return { event, code };
+  }).filter(Boolean);
+
+  const timers = [];
+  for (const { event, code } of pairs) {
+    if (event.startsWith('every ')) {
+      const ms = parseDuration(event.slice('every '.length));
+      if (ms > 0) {
+        const id = setInterval(() => {
+          try { execute(code, buildCtx(el, new CustomEvent('every')), locals || {}, false); } catch (e) { console.error('[JTX] jtx-on every error', e); }
+          scheduleRender();
+        }, ms);
+        timers.push(id);
+      }
+      continue;
+    }
+
+    el.addEventListener(event, (ev) => {
+      if (ev.target !== el) return; // ignore bubbled events from children
+      try { execute(code, buildCtx(el, ev), locals || {}, false); } catch (e) { console.error('[JTX] jtx-on error', e); }
+      scheduleRender();
+    });
+  }
+
+  if (timers.length) {
+    periodicMap.set(el, timers);
+    // Cleanup timers when element is removed
+    registerCleanup(el, () => {
+      const arr = periodicMap.get(el) || [];
+      for (const id of arr) {
+        try { clearInterval(id); } catch { /* ignore */ }
+      }
+      periodicMap.delete(el);
+    });
+  }
+}
+
 function getOwnerSrc(el) {
   const srcEl = el.closest('jtx-src');
   if (!srcEl) return null;
@@ -835,17 +880,30 @@ function bindAllIn(root, perItemCtx) {
       node = walker.nextNode();
       continue;
     }
+
     // Skip anything inside a <jtx-template> (blueprint only)
     if (el !== root && typeof el.closest === 'function' && el.closest('jtx-template')) {
       node = walker.nextNode();
       continue;
     }
-    // skip definitions and template content root
+
+    // skip definitions and template content root,
+    // but still allow event handlers on <jtx-state> and <jtx-src>
     const tag = el.tagName.toLowerCase();
-    if (tag === 'jtx-state' || tag === 'jtx-src' || tag === 'jtx-template') {
+    if (tag === 'jtx-state' || tag === 'jtx-src') {
+      const onExpr = el.getAttribute('jtx-on');
+      if (onExpr != null) {
+        try { bindOnSelf(el, onExpr, perItemCtx); } catch { /* ignore */ }
+      }
+      try { Object.defineProperty(el, '__jtxProcessed', { value: true, configurable: true }); } catch { /* ignore */ }
       node = walker.nextNode();
       continue;
     }
+    if (tag === 'jtx-template') {
+      node = walker.nextNode();
+      continue;
+    }
+
     // attributes
     for (const { name: attrName, value } of Array.from(el.attributes)) {
       if (attrName.startsWith('jtx-attr-')) {
@@ -855,6 +913,7 @@ function bindAllIn(root, perItemCtx) {
         ATTR_BINDERS[attrName](el, value, perItemCtx);
       }
     }
+
     // mark as processed
     try { Object.defineProperty(el, '__jtxProcessed', { value: true, configurable: true }); } catch { /* ignore */ }
     node = walker.nextNode();
