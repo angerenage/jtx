@@ -26,5 +26,13 @@
   "devDependencies": {
     "esbuild": "^0.25.9",
     "eslint": "^9.35.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angerenage/jtx.git"
+  },
+  "homepage": "https://github.com/angerenage/jtx#readme",
+  "bugs": {
+    "url": "https://github.com/angerenage/jtx/issues"
   }
 }
