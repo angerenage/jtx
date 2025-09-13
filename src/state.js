@@ -26,7 +26,7 @@ export function initState(el, locals, options) {
   };
 
   for (const { name: attrName, value } of Array.from(el.attributes)) {
-    if (attrName === 'name' || attrName === 'persist' || attrName === 'persist-url') continue;
+    if (attrName === 'name' || attrName === 'persist' || attrName === 'persist-url' || attrName.startsWith('jtx-')) continue;
     try {
       const v = execute(value, buildCtx(el, null), locals || {}, true);
       st.value[attrName] = v;

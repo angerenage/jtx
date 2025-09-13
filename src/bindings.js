@@ -585,11 +585,11 @@ function bindInsertList(el, forExpr) {
         break;
 
       case 'jtx-if':
-        bindIf(el, expr, undefined);
+        bindIf(el, expr, locals);
         break;
 
       case 'jtx-show':
-        bindShow(el, expr, undefined);
+        bindShow(el, expr, locals);
         break;
 
       case 'jtx-model':
@@ -597,7 +597,7 @@ function bindInsertList(el, forExpr) {
         break;
 
       case 'jtx-on':
-        bindOn(el, expr, undefined);
+        bindOn(el, expr, locals);
         break;
 
       default:
@@ -786,7 +786,24 @@ function bindInsertList(el, forExpr) {
     // Seed internal state from existing DOM once (helps after hot reload or static SSR)
     seedMergeStateFromDOMOnce();
 
-    // Deduplicate incoming by key (last wins)
+    // Validate incoming keys: reject null/undefined/empty or duplicates in the same batch
+    const seenKeys = new Set();
+    for (let i = 0; i < entries.length; i++) {
+      const { idx, item } = entries[i];
+      const rawKey = computeKey(idx, item, rootVal);
+      const keyStr = toStr(rawKey);
+      if (rawKey == null || keyStr === '') {
+        fire(el, 'error', { error: new Error('jtx-insert: invalid key (null/undefined/empty)') });
+        return; // do not modify DOM
+      }
+      if (seenKeys.has(keyStr)) {
+        fire(el, 'error', { error: new Error('jtx-insert: duplicate keys in batch') });
+        return; // do not modify DOM
+      }
+      seenKeys.add(keyStr);
+    }
+
+    // Deduplicate incoming by key (last wins) after validation
     const incoming = new Map();
     for (let i = 0; i < entries.length; i++) {
       const { idx, item } = entries[i];
