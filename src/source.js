@@ -79,7 +79,9 @@ export function initSrc(el) {
 
   const headersAttr = el.getAttribute('headers');
   if (headersAttr) {
-    // Try expression evaluation first (allows @state references), fallback to JSON
+    // Preserve the original expression for dynamic evaluation on each fetch
+    try { Object.defineProperty(src, 'headersExpr', { value: headersAttr, configurable: true }); } catch { /* ignore */ }
+    // Also attempt an initial evaluation for visibility (non-authoritative)
     try {
       const evaluated = safeEval(headersAttr, el);
       if (evaluated && typeof evaluated === 'object') src.headers = evaluated;
@@ -170,15 +172,32 @@ export async function refreshSource(name) {
   if (src.kind === 'sse' || src.kind === 'ws') return reopenStream(src);
 }
 
+function computeHeaders(src) {
+  const headersAttr = src.headersExpr || src.el.getAttribute('headers') || '';
+  if (!headersAttr) return {};
+  try {
+    const evaluated = safeEval(headersAttr, src.el);
+    if (evaluated == null) return {};
+    if (typeof evaluated === 'object') return evaluated;
+    throw new Error('headers must evaluate to an object');
+  } catch {
+    try { return JSON.parse(headersAttr); } catch { /* ignore */ }
+  }
+  console.warn('[JTX] Invalid headers for', src.name);
+  return {};
+}
+
 async function fetchHttpSource(src) {
   const url = src.url;
+  const headers = computeHeaders(src);
+  src.headers = headers;
 
   src.updateStatus('loading');
-  fire(src.el, 'fetch', { url, headers: src.headers });
+  fire(src.el, 'fetch', { url, headers });
   scheduleRender();
 
   try {
-    const res = await fetch(url, { headers: src.headers });
+    const res = await fetch(url, { headers });
 
     if (!res.ok) {
       const message = `HTTP ${res.status}`;
