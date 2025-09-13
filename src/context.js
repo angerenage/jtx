@@ -9,12 +9,24 @@ export const preprocessExpr = (expr) => String(expr).replace(REF_RE, 'ctx.$ref("
 
 export function execute(code, ctx, extra = {}, asExpr = true) {
   const src = preprocessExpr(code);
-  const names = Object.keys(extra);
-  const vals = Object.values(extra);
-  const body = asExpr ? `return ( ${src} );` : src;
-  const fn = new Function('ctx', ...names, body);
+  const extraNames = Object.keys(extra);
+  const extraVals = Object.values(extra);
+  const ctxProps = ctx ? Object.keys(ctx) : [];
+  const dedupCtxProps = ctxProps.filter((n) => !extraNames.includes(n));
+  const allNames = ['ctx', ...extraNames, ...dedupCtxProps];
   const ctxWithLocals = Object.assign({}, ctx, { $locals: extra });
-  return fn(ctxWithLocals, ...vals);
+  const allVals = [ctxWithLocals, ...extraVals, ...dedupCtxProps.map((n) => ctx[n])];
+
+  if (asExpr) {
+    const body = `return ( ${src} );`;
+    const fn = new Function(...allNames, body);
+    return fn(...allVals);
+  }
+
+  // compile as async function so handlers can use 'await'
+  const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
+  const fn = new AsyncFunction(...allNames, src);
+  return fn(...allVals);
 }
 
 export const JTX_REF = Symbol('jtx-ref');

@@ -183,18 +183,20 @@ function bindOn(el, expr, locals) {
     if (event.startsWith('every ')) {
       const ms = parseDuration(event.slice('every '.length));
       if (ms > 0) {
-        const id = setInterval(() => {
-          try { execute(code, buildCtx(el, new CustomEvent('every')), locals || {}, false); } catch (e) { console.error('[JTX] jtx-on every error', e); }
-          scheduleRender();
+        const id = setInterval(async () => {
+          try { await execute(code, buildCtx(el, new CustomEvent('every')), locals || {}, false); }
+          catch (e) { console.error('[JTX] jtx-on every error', e); }
+          finally { scheduleRender(); }
         }, ms);
         timers.push(id);
       }
       continue;
     }
 
-    el.addEventListener(event, (ev) => {
-      try { execute(code, buildCtx(el, ev), locals || {}, false); } catch (e) { console.error('[JTX] jtx-on error', e); }
-      scheduleRender();
+    el.addEventListener(event, async (ev) => {
+      try { await execute(code, buildCtx(el, ev), locals || {}, false); }
+      catch (e) { console.error('[JTX] jtx-on error', e); }
+      finally { scheduleRender(); }
     });
   }
 
