@@ -173,10 +173,11 @@ If `<expr>` yields null, undefined or any non‑iterable value, it is coerced to
 
 - key (*recommended*) – expression that yields a **stable string key** for each item. jtx uses this to identify DOM nodes when updating. If absent, the insert falls back to the current index or object key, which is not stable across updates.  
 - strategy (*optional*) – how to handle successive evaluations and updates. Options:  
-  - replace (*default*): each evaluation of `<expr>` yields a new list of keys. jtx updates existing DOM nodes if their keys match, creates nodes for new keys, and **removes** any nodes whose key is not in the new list.
-  - merge: jtx maintains an internal **map** keyed by key. For each evaluation of `<expr>`, it upserts items into this map: existing keys are updated; new keys are added; keys not present in the evaluation **remain in the map**. The DOM reflects the current map. This strategy is useful when you receive partial updates (e.g. SSE events that provide one or a few items at a time) and want to merge them with what is already displayed.
-  - append: jtx maintains an internal **ordered list**. For each evaluation, items with keys not in the list are **appended to the end**; items with keys already in the list are updated; items not present remain. This preserves the order of arrival rather than the order in `<expr>`.
-  - prepend: like append but new items are inserted at the **start** of the internal list.
+  - replace: **Removes** all current items and inserts the new ones from scratch. Emits remove for the previously present keys, then add for the new items.
+  - append: Adds the new items to the end, always. Applies window trimming (from the start), emitting remove for trimmed items.
+  - prepend: Adds the new items to the beginning, always (no de-dup by key). Applies window trimming (from the end) if configured, emitting remove.
+  - merge (after append or prepend): Replaces existing items by index and appends/prepend extra items; leaves others intact. Emits update for changed items, add for new items. Window as append/prepend.
+
 - window (**required if strategy is not replace**) – integer specifying a window size. For example, window="200" keeps at most 200 items in the list. Items beyond are dropped from the state and DOM when new items arrive. This allows uncontrolled feeds to remain performant.
 
 Children:

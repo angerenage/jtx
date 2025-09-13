@@ -211,6 +211,14 @@ function bindOn(el, expr, locals) {
   }
 }
 
+function getOwnerSrc(el) {
+  const srcEl = el.closest('jtx-src');
+  if (!srcEl) return null;
+  const name = srcEl.getAttribute('name');
+  if (!name) return null;
+  return registry.srcs.get(name) || null;
+}
+
 // <jtx-insert>
 function initInsert(el) {
   const forExpr = el.getAttribute('for');
@@ -244,13 +252,8 @@ function bindInsertScalar(el, textExpr, htmlExpr) {
 
   const slots = scanSlotsAndHide();
 
-  function ownerSrc() {
-    const srcEl = el.closest('jtx-src');
-    if (!srcEl) return null;
-    const name = srcEl.getAttribute('name');
-    if (!name) return null;
-    return registry.srcs.get(name) || null;
-  }
+  // Use shared helper to query owning src
+  const ownerSrc = () => getOwnerSrc(el);
 
   function isSpecialNode(node) {
     if (node.nodeType !== Node.ELEMENT_NODE) return false;
@@ -318,7 +321,12 @@ function bindInsertList(el, forExpr) {
   const valVar = names[0] || '$';
   const keyVar = hasKeyVar ? names[1] : '$index';
   const keyExpr = el.getAttribute('key');
-  const strategy = (el.getAttribute('strategy') || 'replace').toLowerCase();
+  const strategyAttr = (el.getAttribute('strategy') || 'replace').toLowerCase();
+  const strategyTokens = new Set(strategyAttr.split(/\s+/).filter(Boolean));
+  const isReplaceStrategy = strategyTokens.has('replace') || (!strategyTokens.has('append') && !strategyTokens.has('prepend') && !strategyTokens.has('merge'));
+  const isAppendOnly = strategyTokens.has('append') && !strategyTokens.has('merge');
+  const isPrependOnly = strategyTokens.has('prepend') && !strategyTokens.has('merge');
+  const isMergeStrategy = strategyTokens.has('merge');
   const windowSize = (() => {
     const w = parseInt(el.getAttribute('window') || '', 10);
     return Number.isFinite(w) && w > 0 ? w : null;
@@ -351,16 +359,12 @@ function bindInsertList(el, forExpr) {
   }
 
   const slots = scanSlots();
+  const mergeState = isMergeStrategy ? { order: [], map: new Map() } : null;
   let prevCount = 0;
   let initFired = false;
 
-  function ownerSrc() {
-    const srcEl = el.closest('jtx-src');
-    if (!srcEl) return null;
-    const name = srcEl.getAttribute('name');
-    if (!name) return null;
-    return registry.srcs.get(name) || null;
-  }
+  // Use shared helper to query owning src
+  const ownerSrc = () => getOwnerSrc(el);
 
   function updateSlots(status, hasItems) {
     const isLoading = status === 'loading';
@@ -384,15 +388,6 @@ function bindInsertList(el, forExpr) {
     return nodes;
   }
 
-  function existingKeysSet() {
-    const set = new Set();
-    for (const n of currentItemNodes()) {
-      const k = n.getAttribute('jtx-key');
-      if (k != null) set.add(k);
-    }
-    return set;
-  }
-
   function insertBeforeSpecial(node) {
     for (const child of Array.from(el.children)) {
       if (isSpecialNode(child)) {
@@ -414,6 +409,78 @@ function bindInsertList(el, forExpr) {
       if (items.length) el.insertBefore(node, items[0]);
       else insertBeforeSpecial(node);
     }
+  }
+
+  // Trim helpers to keep window size under control without changing semantics
+  function trimWindowNodes(windowSize, fromEnd) {
+    if (windowSize == null || windowSize < 0) return [];
+    const items = currentItemNodes();
+    if (items.length <= windowSize) return [];
+    const excess = items.length - windowSize;
+    const removedKeys = [];
+    if (fromEnd) {
+      for (let i = 0; i < excess; i++) {
+        const n = items[items.length - 1 - i];
+        if (!n) continue;
+        const rk = n.getAttribute('jtx-key');
+        if (rk != null) removedKeys.push(rk);
+        try { n.remove(); } catch { /* ignore */ }
+      }
+    }
+    else {
+      for (let i = 0; i < excess; i++) {
+        const n = items[i];
+        if (!n) continue;
+        const rk = n.getAttribute('jtx-key');
+        if (rk != null) removedKeys.push(rk);
+        try { n.remove(); } catch { /* ignore */ }
+      }
+    }
+    return removedKeys;
+  }
+
+  function seedMergeStateFromDOMOnce() {
+    if (!mergeState) return;
+    if (mergeState.order.length !== 0 || mergeState.map.size !== 0) return;
+    const existing = currentItemNodes();
+    const seen = new Set();
+    for (const n of existing) {
+      const k = n.getAttribute('jtx-key');
+      if (k == null) continue;
+      if (seen.has(k)) { try { n.remove(); } catch { /* ignore */ } continue; }
+      seen.add(k);
+      mergeState.order.push(k);
+      mergeState.map.set(k, n);
+    }
+  }
+
+  function trimWindowMerge(windowSize, prependMode) {
+    if (windowSize == null || windowSize < 0) return [];
+    const itemsCount = mergeState.order.length;
+    if (itemsCount <= windowSize) return [];
+    const excess = itemsCount - windowSize;
+    const removedKeys = [];
+    if (prependMode) {
+      for (let i = 0; i < excess; i++) {
+        const rk = mergeState.order.pop();
+        if (rk == null) continue;
+        removedKeys.push(rk);
+        const node = mergeState.map.get(rk);
+        try { node?.remove(); } catch { /* ignore */ }
+        mergeState.map.delete(rk);
+      }
+    }
+    else {
+      for (let i = 0; i < excess; i++) {
+        const rk = mergeState.order.shift();
+        if (rk == null) continue;
+        removedKeys.push(rk);
+        const node = mergeState.map.get(rk);
+        try { node?.remove(); } catch { /* ignore */ }
+        mergeState.map.delete(rk);
+      }
+    }
+    return removedKeys;
   }
 
   function exprUsesLocal(expr, localNames) {
@@ -575,8 +642,7 @@ function bindInsertList(el, forExpr) {
       const order = [valVar, hasKeyVar ? keyVar : null, '$', '$index', '$root'].filter(Boolean);
 
       const v = evalWithLocalOrder(keyExpr, el, baseLocals, order);
-      if (v == null) throw new Error('jtx-insert key evaluated to null/undefined');
-      return v;
+      return v == null ? idx : v;
     }
     return idx;
   }
@@ -592,144 +658,137 @@ function bindInsertList(el, forExpr) {
   function update() {
     let rootVal;
     try { rootVal = unwrapRef(safeEval(rhsExpr, el)); } catch (e) {
-      // evaluation error in for-expression
-      try { el && el.ownerDocument && el.dispatchEvent && console.error('[JTX] jtx-insert for error', e); } catch { /* ignore */ }
+      try { console.error('[JTX] jtx-insert for error', e); } catch { /* ignore */ }
       fire(el, 'error', { error: e });
       return;
     }
     const entries = materializeList(rootVal);
 
-    // Pre-compute keys and validate duplicates when keyExpr is provided
-    let keyed;
-    try {
-      const seen = new Set();
-      keyed = entries.map(({ idx, item }) => {
-        const key = toStr(computeKey(idx, item, rootVal));
-        if (keyExpr) {
-          if (key === 'undefined' || key === 'null') throw new Error('jtx-insert key is undefined/null');
-          if (seen.has(key)) throw new Error('jtx-insert duplicate key: ' + key);
-          seen.add(key);
-        }
-        return { idx, item, key };
-      });
-    } catch (e) {
-      fire(el, 'error', { error: e });
-      return; // do not modify DOM on error
-    }
-
-    if (strategy === 'replace') {
+    if (isReplaceStrategy) {
+      // Remove all current nodes and track keys
       const current = currentItemNodes();
-      if (current.length === keyed.length) {
-        const desiredKeys = keyed.map(({ key }) => key);
-        let same = true;
-
-        for (let i = 0; i < current.length; i++) {
-          const k = current[i].getAttribute('jtx-key') ?? '';
-          if (k !== desiredKeys[i]) {
-            same = false;
-            break;
-          }
-        }
-
-        if (same) {
-          const src = ownerSrc();
-          updateSlots(src?.status, current.length > 0);
-          // No structural change; consider this an update of existing items
-          if (current.length > 0) {
-            try { fire(el, 'update', { items: keyed.map(({ item }) => unwrapRef(item)) }); } catch { /* ignore */ }
-          }
-          if (!initFired && current.length > 0) {
-            fire(el, 'init', { count: current.length });
-            initFired = true;
-          }
-          if (current.length === 0 && prevCount !== 0) fire(el, 'empty', {});
-          prevCount = current.length;
-          return;
-        }
-      }
-
-      // Keyed diff: reuse existing nodes by key, create only missing, and reorder
-      const existingMap = new Map();
+      const removedKeys = [];
       for (const n of current) {
-        const k = n.getAttribute('jtx-key') ?? '';
-        existingMap.set(k, n);
+        const k = n.getAttribute('jtx-key');
+        if (k != null) removedKeys.push(k);
+        try { n.remove(); } catch { /* ignore */ }
       }
 
+      // Add all new nodes
       const frag = document.createDocumentFragment();
       const addedItems = [];
-      const updatedItems = [];
-      for (const { idx, item, key } of keyed) {
-        let node = existingMap.get(key);
-        if (node) {
-          existingMap.delete(key);
-          updatedItems.push(unwrapRef(item));
-        }
-        else {
-          node = createNodeFor(idx, item, rootVal, key);
-          addedItems.push(unwrapRef(item));
-        }
+      for (const { idx, item } of entries) {
+        const key = toStr(computeKey(idx, item, rootVal));
+        const node = createNodeFor(idx, item, rootVal, key);
+        addedItems.push(unwrapRef(item));
         frag.appendChild(node);
       }
-
-      const removedKeys = [];
-      for (const [k, leftover] of existingMap.entries()) { removedKeys.push(k); leftover.remove(); }
-
       insertBeforeSpecial(frag);
+
+      // Finalize lifecycle for replace (update slots, then init, remove, add, empty)
       const src = ownerSrc();
       const newCount = currentItemNodes().length;
       updateSlots(src?.status, newCount > 0);
       if (!initFired && newCount > 0) { fire(el, 'init', { count: newCount }); initFired = true; }
-      if (addedItems.length) fire(el, 'add', { items: addedItems });
-      if (updatedItems.length) fire(el, 'update', { items: updatedItems });
       if (removedKeys.length) fire(el, 'remove', { keys: removedKeys });
+      if (addedItems.length) fire(el, 'add', { items: addedItems });
       if (newCount === 0 && prevCount !== 0) fire(el, 'empty', {});
       prevCount = newCount;
       return;
     }
 
-    const existing = existingKeysSet();
-    const addedItems = [];
-    const updatedItems = [];
-    for (const { idx, item, key: k } of keyed) {
-      if (existing.has(k)) { updatedItems.push(unwrapRef(item)); continue; }
+    if (isAppendOnly || isPrependOnly) {
+      const addedItems = [];
+      if (isAppendOnly) {
+        for (const { idx, item } of entries) {
+          const key = toStr(computeKey(idx, item, rootVal));
+          const node = createNodeFor(idx, item, rootVal, key);
+          insertBeforeSpecial(node);
+          addedItems.push(unwrapRef(item));
+        }
+      }
+      else {
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const { idx, item } = entries[i];
+          const key = toStr(computeKey(idx, item, rootVal));
+          const node = createNodeFor(idx, item, rootVal, key);
+          insertAtStart(node);
+          addedItems.push(unwrapRef(item));
+        }
+      }
 
-      const node = createNodeFor(idx, item, rootVal, k);
-      if (strategy === 'prepend') insertAtStart(node);
-      else insertBeforeSpecial(node);
+      // window trimming and removal event BEFORE slot/update to preserve ordering
+      const removedKeys = trimWindowNodes(windowSize, /*fromEnd*/ isPrependOnly);
+      if (removedKeys.length) fire(el, 'remove', { keys: removedKeys });
 
-      existing.add(k);
-      addedItems.push(unwrapRef(item));
+      // Finalize lifecycle for append/prepend (update slots, then init, add, empty)
+      const src = ownerSrc();
+      const countNow = currentItemNodes().length;
+      updateSlots(src?.status, countNow > 0);
+      if (!initFired && countNow > 0) { fire(el, 'init', { count: countNow }); initFired = true; }
+      if (addedItems.length) fire(el, 'add', { items: addedItems });
+      if (countNow === 0 && prevCount !== 0) fire(el, 'empty', {});
+      prevCount = countNow;
+      return;
     }
 
-    if (windowSize != null && windowSize >= 0) {
-      const items = currentItemNodes();
-      if (items.length > windowSize) {
-        const excess = items.length - windowSize;
-        const removedKeys = [];
-        if (strategy === 'prepend') {
-          for (let i = 0; i < excess; i++) {
-            const n = items[items.length - 1 - i];
-            if (!n) continue;
-            const rk = n.getAttribute('jtx-key');
-            if (rk != null) removedKeys.push(rk);
-            n.remove();
-          }
-        }
-        else {
-          for (let i = 0; i < excess; i++) {
-            const n = items[i];
-            if (!n) continue;
-            const rk = n.getAttribute('jtx-key');
-            if (rk != null) removedKeys.push(rk);
-            n.remove();
-          }
-        }
-        if (removedKeys.length) fire(el, 'remove', { keys: removedKeys });
+    if (!keyExpr) {
+      console.warn('[JTX] jtx-insert merge without a key may not behave as expected (uses index keys)');
+    }
+
+    // Seed internal state from existing DOM once (helps after hot reload or static SSR)
+    seedMergeStateFromDOMOnce();
+
+    // Deduplicate incoming by key (last wins)
+    const incoming = new Map();
+    for (let i = 0; i < entries.length; i++) {
+      const { idx, item } = entries[i];
+      const k = toStr(computeKey(idx, item, rootVal));
+      incoming.set(k, { idx, item });
+    }
+
+    const addedItems = [];
+    const updatedItems = [];
+    const prependMode = strategyTokens.has('prepend') && !strategyTokens.has('append');
+    const newPrependQueue = [];
+
+    for (const [k, rec] of incoming.entries()) {
+      const item = rec.item;
+      if (mergeState.map.has(k)) {
+        const oldNode = mergeState.map.get(k);
+        const displayIdx = mergeState.order.indexOf(k);
+        const newNode = createNodeFor(displayIdx, item, rootVal, k);
+        try { oldNode.replaceWith(newNode); } catch { /* ignore */ }
+        mergeState.map.set(k, newNode);
+        updatedItems.push(unwrapRef(item));
+      }
+      else {
+        const displayIdx = prependMode ? 0 : mergeState.order.length;
+        const newNode = createNodeFor(displayIdx, item, rootVal, k);
+        if (prependMode) newPrependQueue.push({ k, node: newNode, item });
+        else { insertBeforeSpecial(newNode); mergeState.order.push(k); mergeState.map.set(k, newNode); }
+        if (!prependMode) addedItems.push(unwrapRef(item));
       }
     }
 
+    if (prependMode && newPrependQueue.length) {
+      // Insert in reverse to preserve incoming order at the beginning
+      for (let i = newPrependQueue.length - 1; i >= 0; i--) {
+        const { k, node, item } = newPrependQueue[i];
+        insertAtStart(node);
+        mergeState.order.unshift(k);
+        mergeState.map.set(k, node);
+        addedItems.push(unwrapRef(item));
+      }
+    }
+
+    // window trimming (fire remove BEFORE slot/update to preserve ordering)
+    const removedKeys = trimWindowMerge(windowSize, prependMode);
+    if (removedKeys.length) fire(el, 'remove', { keys: removedKeys });
+
+    // Finalize lifecycle for merge (update slots, then init, add, update, empty)
     const src = ownerSrc();
-    const countNow = currentItemNodes().length;
+    const countNow = mergeState.order.length;
     updateSlots(src?.status, countNow > 0);
     if (!initFired && countNow > 0) { fire(el, 'init', { count: countNow }); initFired = true; }
     if (addedItems.length) fire(el, 'add', { items: addedItems });
