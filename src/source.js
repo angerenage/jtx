@@ -110,7 +110,7 @@ export function initSrc(el) {
         if (idx === -1) continue;
 
         const evt = p.slice(0, idx).trim();
-        if (!evt || evt.toLowerCase().startsWith('every ')) continue;
+        if (!evt || evt.startsWith('every ')) continue;
         if (std.has(evt)) continue;
 
         types.add(evt);

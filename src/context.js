@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import { registry, scheduleRender, fire, recordDependency } from './core.js';
-import { toStr, http } from './utils.js';
+import { http } from './utils.js';
 import { refreshSource } from './source.js';
 
 export const REF_RE = /@([a-zA-Z_][\w$]*)/g;
@@ -66,45 +66,22 @@ export function makeStateRef(state) {
       if (prop === 'toJSON') return () => state.value;
       if (prop === 'toString') return () => String(stateDefaultPrimitive());
       if (prop === 'valueOf') return () => stateDefaultPrimitive();
-      if (typeof prop === 'string') {
-        if (prop in state.value) return state.value[prop];
-        const lc = prop.toLowerCase();
-        if (lc in state.value) return state.value[lc];
-      }
       return state.value[prop];
     },
     set(target, prop, value) {
       // track pending change
-      if (typeof prop === 'string') {
-        if (prop in state.value) state.value[prop] = value;
-        else {
-          const lc = prop.toLowerCase();
-          if (lc in state.value) state.value[lc] = value; else state.value[prop] = value;
-        }
-        state.pendingKeys.add(toStr(prop));
-      }
-      else {
-        state.value[prop] = value;
-        state.pendingKeys.add(toStr(prop));
-      }
+      state.value[prop] = value;
+      state.pendingKeys.add(String(prop));
       registry.changed.add(state);
       scheduleRender();
       return true;
     },
     has(target, prop) {
-      if (typeof prop === 'string') {
-        return (prop in state.value) || (prop.toLowerCase() in state.value);
-      }
-      return prop in state.value;
+      return String(prop) in state.value;
     },
     ownKeys() { return Reflect.ownKeys(state.value); },
     getOwnPropertyDescriptor(_, prop) {
-      if (typeof prop === 'string') {
-        if (Object.prototype.hasOwnProperty.call(state.value, prop)) return Object.getOwnPropertyDescriptor(state.value, prop);
-        const lc = prop.toLowerCase();
-        if (Object.prototype.hasOwnProperty.call(state.value, lc)) return Object.getOwnPropertyDescriptor(state.value, lc);
-      }
-      return Object.getOwnPropertyDescriptor(state.value, prop);
+      return Object.getOwnPropertyDescriptor(state.value, String(prop));
     },
   });
 }

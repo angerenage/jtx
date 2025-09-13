@@ -25,7 +25,7 @@ export const parseDuration = (s) => {
   if (!s) return 0;
   const m = String(s).trim().match(/^(\d+)(ms|s|m|h)?$/i);
   if (!m) return 0;
-  const unit = (m[2] || 'ms').toLowerCase();
+  const unit = (m[2] || 'ms');
   return parseInt(m[1], 10) * (UNIT_MS[unit] || 1);
 };
 
