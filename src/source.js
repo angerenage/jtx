@@ -318,11 +318,17 @@ function openStream(src) {
 
       es.addEventListener('error', (ev) => {
         src.error = { name: src.name, type: 'connection', message: 'SSE error', raw: ev };
-        fire(src.el, 'error', src.error);
+        try { src.updateStatus('error'); } catch { /* ignore */ }
+        try { fire(src.el, 'error', src.error); } catch { /* ignore */ }
+        try { registry.changed.add(src); } catch { /* ignore */ }
+        try { scheduleRender(); } catch { /* ignore */ }
       });
     } catch (e) {
       src.error = { name: src.name, type: 'connection', message: e.message, raw: e };
-      fire(src.el, 'error', src.error);
+      try { src.updateStatus('error'); } catch { /* ignore */ }
+      try { fire(src.el, 'error', src.error); } catch { /* ignore */ }
+      try { registry.changed.add(src); } catch { /* ignore */ }
+      try { scheduleRender(); } catch { /* ignore */ }
     }
   }
   else if (src.kind === 'ws') {
@@ -338,14 +344,20 @@ function openStream(src) {
       });
       ws.addEventListener('error', (ev) => {
         src.error = { name: src.name, type: 'connection', message: 'WS error', raw: ev };
-        fire(src.el, 'error', src.error);
+        try { src.updateStatus('error'); } catch { /* ignore */ }
+        try { fire(src.el, 'error', src.error); } catch { /* ignore */ }
+        try { registry.changed.add(src); } catch { /* ignore */ }
+        try { scheduleRender(); } catch { /* ignore */ }
       });
       ws.addEventListener('close', (ev) => {
         fire(src.el, 'close', { name: src.name, code: ev.code, reason: ev.reason });
       });
     } catch (e) {
       src.error = { name: src.name, type: 'connection', message: e.message, raw: e };
-      fire(src.el, 'error', src.error);
+      try { src.updateStatus('error'); } catch { /* ignore */ }
+      try { fire(src.el, 'error', src.error); } catch { /* ignore */ }
+      try { registry.changed.add(src); } catch { /* ignore */ }
+      try { scheduleRender(); } catch { /* ignore */ }
     }
   }
 }
@@ -360,8 +372,9 @@ function handleStreamMessage(src, data, type, lastEventId) {
     scheduleRender();
   } catch (e) {
     src.error = { name: src.name, type: 'format', message: 'Invalid JSON', raw: e };
-    registry.changed.add(src);
-    fire(src.el, 'error', src.error);
-    scheduleRender();
+    try { src.updateStatus('error'); } catch { /* ignore */ }
+    try { registry.changed.add(src); } catch { /* ignore */ }
+    try { fire(src.el, 'error', src.error); } catch { /* ignore */ }
+    try { scheduleRender(); } catch { /* ignore */ }
   }
 }

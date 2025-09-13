@@ -711,6 +711,25 @@ function bindInsertList(el, forExpr) {
     }
     const entries = materializeList(rootVal);
 
+    // General key validation for strategies that rely on provided keys in a batch
+    if ((isReplaceStrategy || isAppendOnly || isPrependOnly) && keyExpr) {
+      const seen = new Set();
+      for (let i = 0; i < entries.length; i++) {
+        const { idx, item } = entries[i];
+        const rawKey = computeKey(idx, item, rootVal);
+        const keyStr = toStr(rawKey);
+        if (rawKey == null || keyStr === '') {
+          fire(el, 'error', { error: new Error('jtx-insert: invalid key (null/undefined/empty)') });
+          return; // abort without touching DOM
+        }
+        if (seen.has(keyStr)) {
+          fire(el, 'error', { error: new Error('jtx-insert: duplicate keys in batch') });
+          return; // abort without touching DOM
+        }
+        seen.add(keyStr);
+      }
+    }
+
     if (isReplaceStrategy) {
       // Remove all current nodes and track keys
       const current = currentItemNodes();
