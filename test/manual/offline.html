@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JTX Manual Page — Offline</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 2rem;
+      line-height: 1.4;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #ddd;
+    }
+
+    header a {
+      color: #0b5cab;
+      text-decoration: none;
+    }
+
+    header a:hover,
+    header a:focus {
+      text-decoration: underline;
+    }
+
+    section {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      flex: 1;
+      margin: 0;
+      font-size: 1.8rem;
+    }
+
+    h2 {
+      margin: 0 0 .5rem;
+      font-size: 1.1rem;
+    }
+
+    .row {
+      display: flex;
+      gap: .5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    code {
+      background: #f7f7f7;
+      padding: 0 .25rem;
+      border-radius: 3px;
+    }
+
+    ul {
+      padding-left: 1.25rem;
+    }
+
+    small {
+      color: #666;
+    }
+
+    .note {
+      color: #555;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>JTX Manual Page (offline)</h1>
+    <nav>
+      <a href="/manual/online.html">Networked scenarios</a>
+    </nav>
+  </header>
+
+  <p class="note">This page exercises states, bindings, handlers, and inserts using only local state. No fetch, SSE, or WebSocket traffic is triggered on load.</p>
+
+  <script src="/dist/jtx.umd.js"></script>
+
+  <jtx-state name="ui" counter="0" theme="'light'" q="''" infoHtml="'Hello <strong>HTML</strong>!'" toggled="false"
+    auto="false" persist-url="q">
+    <section>
+      <h2>State and Bindings</h2>
+      <div class="row">
+        <button jtx-on="click: @ui.counter++">+</button>
+        <button jtx-on="click: @ui.counter--">-</button>
+        <span>Counter: <strong jtx-text="@ui.counter"></strong></span>
+      </div>
+      <div class="row">
+        <button jtx-on="click: @ui.toggled = !@ui.toggled" jtx-text="@ui.toggled ? 'Hide' : 'Show'"></button>
+        <span jtx-show="@ui.toggled">Shown via <code>jtx-show</code></span>
+        <span jtx-if="@ui.counter % 2 === 0">Even via <code>jtx-if</code></span>
+      </div>
+      <div class="row">
+        <span>HTML: <span jtx-html="@ui.infoHtml"></span></span>
+      </div>
+      <div class="row">
+        <a jtx-attr-href="'#' + @ui.q" jtx-text="'Go to #' + @ui.q"></a>
+        <button jtx-attr-disabled="@ui.counter < 0">Disabled if counter &lt; 0</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Model Binding</h2>
+      <div class="row">
+        <input placeholder="Type query..." jtx-model="@ui.q">
+        <span>Searching for: <strong jtx-text="@ui.q"></strong></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Handlers: emit and periodic</h2>
+      <div class="row">
+        <button jtx-on="click: @ui.counter++; emit('counter:changed', { value: @ui.counter })">Increment + emit</button>
+        <span>Last emitted value: <strong jtx-text="@ui.last"></strong></span>
+      </div>
+      <p jtx-on="counter:changed: @ui.last = .detail.value"></p>
+      <div class="row">
+        <label><input type="checkbox" jtx-model="@ui.auto"> Auto increment every 2s</label>
+      </div>
+      <div class="row" jtx-on="every 2s: @ui.auto && (@ui.counter++)">
+        <small>Auto-increment counter every 2s via <code>every</code> (toggle with checkbox)</small>
+      </div>
+    </section>
+  </jtx-state>
+
+  <jtx-state name="user" username="'Ada'" greeting="'Hello'" infoHtml="'Hello <strong>HTML</strong>!'">
+    <section>
+      <h2>Insert: Scalar</h2>
+      <p><jtx-insert text="@user.greeting" /> <strong jtx-text="@user.username"></strong>!</p>
+      <p>Hello, <jtx-insert text="@user.username">unknown</jtx-insert>!</p>
+      <p>HTML: <jtx-insert html="@user.infoHtml"></jtx-insert></p>
+    </section>
+  </jtx-state>
+
+  <jtx-state name="data" items="[{id:1,title:'First'},{id:2,title:'Second'}]" map="{a:1,b:2}">
+    <section>
+      <h2>Insert: List (array, replace)</h2>
+      <div class="row">
+        <button jtx-on="click: @data.items = [...(@data.items||[]), {id: Date.now(), title: 'New'}]">Add item</button>
+        <button jtx-on="click: @data.items = (@data.items||[]).slice(1)">Remove first</button>
+        <button jtx-on="click: @data.items = []">Clear</button>
+      </div>
+      <ul>
+        <jtx-insert for="item in @data.items" key="(item && item.id) ?? " strategy="replace">
+          <jtx-template>
+            <li>
+              <jtx-state name="element" title="(item && item.title) || ''">
+                <span jtx-text="@element.title"></span>
+                <button jtx-on="click: @element.title = @element.title + '!'">Emphasize</button>
+              </jtx-state>
+            </li>
+          </jtx-template>
+          <jtx-empty>No items</jtx-empty>
+        </jtx-insert>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Insert: Object iteration</h2>
+      <div class="row">
+        <button jtx-on="click: @data.map = {...@data.map, ['k'+Date.now()]: Math.floor(Math.random()*10)}">Add entry</button>
+        <button jtx-on="click: @data.map = {}">Clear map</button>
+      </div>
+      <div>
+        <jtx-insert for="value, key in @data.map" strategy="replace">
+          <jtx-template>
+            <div><code jtx-text="key"></code>: <span jtx-text="value"></span></div>
+          </jtx-template>
+          <jtx-empty>No entries</jtx-empty>
+        </jtx-insert>
+      </div>
+    </section>
+  </jtx-state>
+</body>
+</html>

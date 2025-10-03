@@ -2,6 +2,7 @@
   "name": "@angerenage/jtx",
   "version": "1.1.0",
   "main": "dist/jtx.umd.js",
+  "type": "module",
   "module": "dist/jtx.esm.js",
   "unpkg": "dist/jtx.umd.js",
   "files": [
@@ -11,7 +12,9 @@
   "scripts": {
     "lint": "eslint src",
     "build": "esbuild src/index.js --bundle --format=esm --outfile=dist/jtx.esm.js --minify --sourcemap && esbuild src/index.js --bundle --format=iife --global-name=JTX --outfile=dist/jtx.umd.js --minify --sourcemap",
-    "prepublishOnly": "npm run lint && npm run build"
+    "prepublishOnly": "npm run lint && npm run build",
+    "test": "node --test \"test/*.test.mjs\"",
+    "manual:test": "node test/manual/api/server.mjs"
   },
   "keywords": [
     "reactive",
@@ -25,7 +28,9 @@
   "description": "Tiny, build-free library that adds reactive, JSON-driven interactivity to server-rendered HTML using simple tags and attributes.",
   "devDependencies": {
     "esbuild": "^0.25.9",
-    "eslint": "^9.35.0"
+    "eslint": "^9.35.0",
+    "jsdom": "^25.0.1",
+    "ws": "^8.18.0"
   },
   "repository": {
     "type": "git",

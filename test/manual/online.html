@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JTX Manual Page — Online (HTTP, SSE, WS)</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 2rem;
+      line-height: 1.4;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #ddd;
+    }
+
+    header a {
+      color: #0b5cab;
+      text-decoration: none;
+    }
+
+    header a:hover,
+    header a:focus {
+      text-decoration: underline;
+    }
+
+    section {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      flex: 1;
+      margin: 0;
+      font-size: 1.8rem;
+    }
+
+    h2 {
+      margin: 0 0 .5rem;
+      font-size: 1.1rem;
+    }
+
+    .row {
+      display: flex;
+      gap: .5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    code {
+      background: #f7f7f7;
+      padding: 0 .25rem;
+      border-radius: 3px;
+    }
+
+    ul {
+      padding-left: 1.25rem;
+      overflow: auto;
+      overflow-anchor: none;
+    }
+
+    small {
+      color: #666;
+    }
+
+    .note {
+      color: #555;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>JTX Manual Page (online)</h1>
+    <nav>
+      <a href="/manual/offline.html">Offline scenarios</a>
+    </nav>
+  </header>
+
+  <p class="note">This page exercises HTTP fetch, SSE and WebSocket sources, along with polling, headers, select,
+    update/error/loading/empty states. Run the Node API in <code>test/api/server.mjs</code> first.</p>
+
+  <script src="/dist/jtx.umd.js"></script>
+
+  <jtx-state name="ui" q="''" updatesCount="0" eventsCount="0" wsCount="0" lastError="''" auto="true" persist-url="q">
+
+    <section>
+      <h2>HTTP: onload + select</h2>
+      <jtx-src name="hello" url="/api/ping" select="message">
+        <div class="row">
+          <input placeholder="Custom token" jtx-model="@ui.q">
+          <button jtx-on="click: @echo.refresh()">Send request</button>
+        </div>
+        <jtx-loading>Loading ping...</jtx-loading>
+        <jtx-error>Error: <span jtx-text="@hello.$error && @hello.$error.message"></span></jtx-error>
+      </jtx-src>
+    </section>
+
+    <section>
+      <h2>HTTP: nested select -&gt; list</h2>
+      <jtx-src name="nested" url="/api/nested" select="data.items">
+        <ul>
+          <jtx-insert for="it in @nested" key="it.id">
+            <jtx-template>
+              <li>
+                <span jtx-text="it.title"></span>
+                <small>#<span jtx-text="it.id"></span></small>
+              </li>
+            </jtx-template>
+            <jtx-loading>Loading items...</jtx-loading>
+            <jtx-error>Error: <span jtx-text="@nested.$error && @nested.$error.message"></span></jtx-error>
+            <jtx-empty>No items</jtx-empty>
+          </jtx-insert>
+        </ul>
+      </jtx-src>
+    </section>
+
+    <section>
+      <h2>HTTP: manual refresh + headers</h2>
+      <div class="row">
+        <input placeholder="Custom token" jtx-model="@ui.q">
+        <button jtx-on="click: @echo.refresh()">Send request</button>
+      </div>
+      <jtx-src name="echo" url="/api/echo-headers" fetch="manual" jtx-on="update: console.log('echo headers', @echo);"
+        headers='{"X-Test":"123","X-Token": @ui.q}'>
+        <div class="row">
+          <span>Received X-Test: <strong
+              jtx-text="(@echo && @echo.received && @echo.received['X-Test']) || ''"></strong></span>
+          <span>Received X-Token: <strong
+              jtx-text="(@echo && @echo.received && @echo.received['X-Token']) || ''"></strong></span>
+        </div>
+        <jtx-loading>Sending...</jtx-loading>
+        <jtx-error>Error: <span jtx-text="@echo.$error && @echo.$error.message"></span></jtx-error>
+      </jtx-src>
+    </section>
+
+    <section>
+      <h2>Polling: merge strategy + window</h2>
+      <div class="row">
+        <label><input type="checkbox" jtx-model="@ui.auto"> Poll every 2s</label>
+        <button jtx-on="click: @updates.refresh()">Manual refresh</button>
+        <small>Total updates merged: <strong jtx-text="@ui.updatesCount"></strong></small>
+      </div>
+      <jtx-src name="updates" url="/api/items/updates" fetch="onload, every 2s"
+        jtx-on="update: @ui.updatesCount += (@updates||[]).length" select="updates">
+        <ul>
+          <jtx-insert for="o in @updates" key="o.id" strategy="append merge" window="50">
+            <jtx-template>
+              <li>
+                <a jtx-attr-href="o.url" jtx-text="o.title"></a>
+                <small>Status: <span jtx-text="o.status"></span></small>
+                <small>Updated: <span jtx-text="o.updatedAt"></span></small>
+              </li>
+            </jtx-template>
+            <jtx-loading>Loading updates...</jtx-loading>
+            <jtx-error>Error: <span jtx-text="@updates.$error && @updates.$error.message"></span></jtx-error>
+            <jtx-empty>No updates yet</jtx-empty>
+          </jtx-insert>
+        </ul>
+      </jtx-src>
+    </section>
+
+    <section>
+      <h2>SSE: append window</h2>
+      <div class="row">
+        <button jtx-on="click: @events.refresh()">Reconnect SSE</button>
+        <small>Events received: <strong jtx-text="@ui.eventsCount"></strong></small>
+      </div>
+      <jtx-src name="events" url="sse:/sse/news" sse-event="news"
+        jtx-on="message: console.log('SSE raw', $event.detail); news: @ui.eventsCount++">
+        <ul>
+          <jtx-insert for="e in @events" key="e.id" strategy="append" window="10">
+            <jtx-template>
+              <li>
+                <span jtx-text="e.title"></span>
+                <small jtx-text="e.time"></small>
+              </li>
+            </jtx-template>
+            <jtx-loading>Connecting SSE...</jtx-loading>
+            <jtx-error>Error: <span jtx-text="@events.$error && @events.$error.message"></span></jtx-error>
+            <jtx-empty>No events yet</jtx-empty>
+          </jtx-insert>
+        </ul>
+      </jtx-src>
+    </section>
+
+    <section>
+      <h2>WebSocket: append window</h2>
+      <div class="row">
+        <button jtx-on="click: @ws.refresh()">Reconnect WS</button>
+        <small>Messages: <strong jtx-text="@ui.wsCount"></strong></small>
+      </div>
+      <jtx-src name="ws" url="ws:/ws/stream" jtx-on="update: @ui.wsCount++">
+        <ul>
+          <jtx-insert for="m in @ws" key="(m && (m.id || m.type)) ?? $index" strategy="append" window="20">
+            <jtx-template>
+              <li>
+                <code jtx-text="m.type"></code>
+                <span jtx-text="m.title || JSON.stringify(m)"></span>
+              </li>
+            </jtx-template>
+            <jtx-loading>Connecting WebSocket...</jtx-loading>
+            <jtx-error>Error: <span jtx-text="@ws.$error && @ws.$error.message"></span></jtx-error>
+            <jtx-empty>No messages</jtx-empty>
+          </jtx-insert>
+        </ul>
+      </jtx-src>
+    </section>
+
+    <section>
+      <h2>Error and Empty handling</h2>
+      <div class="row">
+        <button jtx-on="click: @err.refresh()">Trigger 500</button>
+        <button jtx-on="click: @emptySrc.refresh()">Trigger 204</button>
+      </div>
+      <div class="row">
+        <jtx-src name="err" url="/api/error?code=500" fetch="manual">
+          <jtx-error>HTTP error: <span jtx-text="(@err.$error && @err.$error.message) || 'unknown'"></span></jtx-error>
+        </jtx-src>
+        <jtx-src name="emptySrc" url="/api/empty" fetch="manual">
+          <jtx-insert text="@emptySrc">
+            <jtx-empty>Empty (null) response</jtx-empty>
+            <jtx-loading>Waiting...</jtx-loading>
+            Click "Trigger 204" to fetch.
+          </jtx-insert>
+        </jtx-src>
+      </div>
+    </section>
+
+    <section>
+      <h2>HTTP: idle fetch</h2>
+      <jtx-src name="idlePing" url="/api/ping" select="time" fetch="idle">
+        <div>Idle time: <strong jtx-text="@idlePing || 'pending'"></strong></div>
+        <jtx-loading>Waiting for idle...</jtx-loading>
+      </jtx-src>
+    </section>
+
+    <div style="height: 600px"></div>
+    <section>
+      <h2>HTTP: visible fetch</h2>
+      <small>Scroll here to trigger fetch</small>
+      <jtx-src name="visiblePing" url="/api/ping" select="time" fetch="visible">
+        <div>Visible time: <strong jtx-text="@visiblePing || 'not fetched yet'"></strong></div>
+        <jtx-loading>Fetching...</jtx-loading>
+      </jtx-src>
+    </section>
+
+  </jtx-state>
+</body>
+</html>
