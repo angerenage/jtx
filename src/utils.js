@@ -36,7 +36,11 @@ export function parsePath(path) {
 
   while (i < s.length) {
     const ch = s[i];
-    if (ch === '.') { i++; readIdent(); continue; }
+    if (ch === '.') {
+      i++;
+      readIdent();
+      continue;
+    }
     if (ch === '[') {
       i++;
       // skip whitespace
@@ -48,7 +52,10 @@ export function parsePath(path) {
         let buf = '';
         while (i < s.length) {
           const c = s[i++];
-          if (c === '\\' && i < s.length) { buf += s[i++]; continue; }
+          if (c === '\\' && i < s.length) {
+            buf += s[i++];
+            continue;
+          }
           if (c === q) break;
           buf += c;
         }
@@ -59,7 +66,7 @@ export function parsePath(path) {
       else {
         // unquoted: number or identifier
         let buf = '';
-        while (i < s.length && s[i] !== ']') { buf += s[i++]; }
+        while (i < s.length && s[i] !== ']') buf += s[i++];
         if (s[i] === ']') i++;
         out.push(String(buf).trim());
       }
