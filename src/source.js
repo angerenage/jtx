@@ -270,6 +270,7 @@ function normalizeSseUrl(u) {
   let url = u.startsWith('sse:') ? u.slice(4) : u;
   return url;
 }
+
 function normalizeWsUrl(u) {
   // Accept forms are the same as SSE but with ws/wss
   let rest = u.startsWith('ws:') ? u.slice(3) : (u.startsWith('wss:') ? u.slice(4) : u);

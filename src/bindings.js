@@ -642,7 +642,20 @@ function bindInsertList(el, forExpr) {
     }
   }
 
-  function createNodeFor(idx, item, rootVal, derivedKey) {
+  function snapshotStateNodes(node) {
+    if (!node || typeof node.querySelectorAll !== 'function') return null;
+    const states = Array.from(node.querySelectorAll('jtx-state'));
+    if (!states.length) return null;
+    const snapshots = [];
+    for (const stEl of states) {
+      const inst = stEl.__jtxState;
+      if (inst && typeof inst.value !== 'undefined') snapshots.push(structuredCloneSafe(inst.value));
+      else snapshots.push(undefined);
+    }
+    return snapshots;
+  }
+
+  function createNodeFor(idx, item, rootVal, derivedKey, restoreStates) {
     const keyString = toStr(derivedKey);
 
     const blueprint = template && template.firstElementChild ? template.firstElementChild : null;
@@ -665,9 +678,15 @@ function bindInsertList(el, forExpr) {
 
     // Initialize any scoped states within this instance before binding
     try {
-      const stateNodes = node.querySelectorAll('jtx-state');
-      for (const stEl of Array.from(stateNodes)) {
-        initState(stEl, locals, { register: false });
+      const stateNodes = Array.from(node.querySelectorAll('jtx-state'));
+      const restoreArr = Array.isArray(restoreStates) ? restoreStates : null;
+      for (let i = 0; i < stateNodes.length; i++) {
+        const stEl = stateNodes[i];
+        const opts = { register: false };
+        if (restoreArr && i < restoreArr.length && typeof restoreArr[i] !== 'undefined') {
+          opts.restore = restoreArr[i];
+        }
+        initState(stEl, locals, opts);
       }
     } catch { /* ignore */ }
 
@@ -676,6 +695,7 @@ function bindInsertList(el, forExpr) {
     compileTemplateOnce(node, locals, localNames);
     return node;
   }
+
 
   function computeKey(idx, item, rootVal, strict = false) {
     if (keyExpr) {
@@ -745,12 +765,17 @@ function bindInsertList(el, forExpr) {
     }
 
     if (isReplaceStrategy) {
-      // Remove all current nodes and track keys
+      // Remove all current nodes and track keys/state snapshots
       const current = currentItemNodes();
       const removedKeys = [];
+      const preservedStates = new Map();
       for (const n of current) {
         const k = n.getAttribute('jtx-key');
-        if (k != null) removedKeys.push(k);
+        if (k != null) {
+          removedKeys.push(k);
+          const snap = snapshotStateNodes(n);
+          if (snap) preservedStates.set(k, snap);
+        }
         try { n.remove(); } catch { /* ignore */ }
       }
 
@@ -759,7 +784,9 @@ function bindInsertList(el, forExpr) {
       const addedItems = [];
       for (const { idx, item } of entries) {
         const key = toStr(computeKey(idx, item, rootVal));
-        const node = createNodeFor(idx, item, rootVal, key);
+        const restoreStates = preservedStates.get(key) || null;
+        preservedStates.delete(key);
+        const node = createNodeFor(idx, item, rootVal, key, restoreStates);
         addedItems.push(unwrapRef(item));
         frag.appendChild(node);
       }
@@ -782,7 +809,7 @@ function bindInsertList(el, forExpr) {
       if (isAppendOnly) {
         for (const { idx, item } of entries) {
           const key = toStr(computeKey(idx, item, rootVal));
-          const node = createNodeFor(idx, item, rootVal, key);
+          const node = createNodeFor(idx, item, rootVal, key, null);
           insertBeforeSpecial(node);
           addedItems.push(unwrapRef(item));
         }
@@ -791,7 +818,7 @@ function bindInsertList(el, forExpr) {
         for (let i = entries.length - 1; i >= 0; i--) {
           const { idx, item } = entries[i];
           const key = toStr(computeKey(idx, item, rootVal));
-          const node = createNodeFor(idx, item, rootVal, key);
+          const node = createNodeFor(idx, item, rootVal, key, null);
           insertAtStart(node);
           addedItems.push(unwrapRef(item));
         }
@@ -856,14 +883,15 @@ function bindInsertList(el, forExpr) {
       if (mergeState.map.has(k)) {
         const oldNode = mergeState.map.get(k);
         const displayIdx = mergeState.order.indexOf(k);
-        const newNode = createNodeFor(displayIdx, item, rootVal, k);
+        const restoreStates = snapshotStateNodes(oldNode);
+        const newNode = createNodeFor(displayIdx, item, rootVal, k, restoreStates);
         try { oldNode.replaceWith(newNode); } catch { /* ignore */ }
         mergeState.map.set(k, newNode);
         updatedItems.push(unwrapRef(item));
       }
       else {
         const displayIdx = prependMode ? 0 : mergeState.order.length;
-        const newNode = createNodeFor(displayIdx, item, rootVal, k);
+        const newNode = createNodeFor(displayIdx, item, rootVal, k, null);
         if (prependMode) newPrependQueue.push({ k, node: newNode, item });
         else { insertBeforeSpecial(newNode); mergeState.order.push(k); mergeState.map.set(k, newNode); }
         if (!prependMode) addedItems.push(unwrapRef(item));

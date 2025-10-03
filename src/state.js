@@ -10,6 +10,7 @@ export function initState(el, locals, options) {
 
   const opts = options || {};
   const register = opts.register !== false; // default true
+  const restore = opts.restore;
 
   if (register && registry.states.has(name)) {
     console.warn(`[JTX] Duplicate state name: ${name}`);
@@ -56,6 +57,17 @@ export function initState(el, locals, options) {
     for (const key of urlAttr.split(',').map((s) => s.trim()).filter(Boolean)) {
       st.urlKeys.add(key);
       if (key in urlParams) st.value[key] = urlParams[key];
+    }
+  }
+
+  if (restore && typeof restore === 'object') {
+    try {
+      const restored = structuredCloneSafe(restore);
+      if (restored && typeof restored === 'object') {
+        Object.assign(st.value, restored);
+      }
+    } catch (e) {
+      fire(el, 'error', { name, error: e });
     }
   }
 
