@@ -4,6 +4,13 @@ import { registry, fire, parseUrlParams } from './core.js';
 import { execute, buildCtx } from './context.js';
 import { structuredCloneSafe } from './utils.js';
 
+function ensureStateKey(st, raw) {
+  if (typeof raw !== 'string') return raw;
+  const lower = raw.toLowerCase();
+  if (!st.keyMap.has(lower)) st.keyMap.set(lower, raw);
+  return st.keyMap.get(lower);
+}
+
 export function initState(el, locals, options) {
   const name = el.getAttribute('name');
   if (!name) return;
@@ -24,16 +31,18 @@ export function initState(el, locals, options) {
     persistedKeys: new Set(),
     urlKeys: new Set(),
     pendingKeys: new Set(),
+    keyMap: new Map(),
   };
 
   for (const { name: attrName, value } of Array.from(el.attributes)) {
     if (attrName === 'name' || attrName === 'persist' || attrName === 'persist-url' || attrName.startsWith('jtx-')) continue;
+    const key = ensureStateKey(st, attrName);
     try {
       const v = execute(value, buildCtx(el, null), locals || {}, true);
-      st.value[attrName] = v;
+      st.value[key] = v;
     } catch (e) {
       // Ensure the key exists even if evaluation fails
-      if (!(attrName in st.value)) st.value[attrName] = undefined;
+      if (!Object.prototype.hasOwnProperty.call(st.value, key)) st.value[key] = undefined;
       fire(el, 'error', { name, error: e });
     }
   }
@@ -41,10 +50,11 @@ export function initState(el, locals, options) {
   const persistAttr = el.getAttribute('persist');
   if (persistAttr) {
     for (const key of persistAttr.split(',').map((s) => s.trim()).filter(Boolean)) {
-      st.persistedKeys.add(key);
+      const mapped = ensureStateKey(st, key);
+      st.persistedKeys.add(mapped);
       try {
-        const raw = localStorage.getItem(`jtx:${name}:${key}`);
-        if (raw != null) st.value[key] = JSON.parse(raw);
+        const raw = localStorage.getItem(`jtx:${name}:${mapped}`);
+        if (raw != null) st.value[mapped] = JSON.parse(raw);
       } catch (e) {
         fire(el, 'error', { name, error: e });
       }
@@ -55,8 +65,9 @@ export function initState(el, locals, options) {
   const urlParams = parseUrlParams();
   if (urlAttr) {
     for (const key of urlAttr.split(',').map((s) => s.trim()).filter(Boolean)) {
-      st.urlKeys.add(key);
-      if (key in urlParams) st.value[key] = urlParams[key];
+      const mapped = ensureStateKey(st, key);
+      st.urlKeys.add(mapped);
+      if (key in urlParams) st.value[mapped] = urlParams[key];
     }
   }
 
@@ -64,7 +75,10 @@ export function initState(el, locals, options) {
     try {
       const restored = structuredCloneSafe(restore);
       if (restored && typeof restored === 'object') {
-        Object.assign(st.value, restored);
+        for (const [key, val] of Object.entries(restored)) {
+          const mapped = ensureStateKey(st, key);
+          st.value[mapped] = val;
+        }
       }
     } catch (e) {
       fire(el, 'error', { name, error: e });

@@ -54,6 +54,13 @@ export function makeStateRef(state) {
     try { return JSON.stringify(val); } catch { return String(val); }
   }
 
+  const resolveKey = (prop) => {
+    if (typeof prop !== 'string') return prop;
+    const map = state.keyMap;
+    if (map && map.has(prop.toLowerCase())) return map.get(prop.toLowerCase());
+    return prop;
+  };
+
   return new Proxy({ [JTX_REF]: { type: 'state', name: state.name, target: state } }, {
     get(target, prop) {
       if (prop === JTX_REF) return target[JTX_REF];
@@ -66,22 +73,43 @@ export function makeStateRef(state) {
       if (prop === 'toJSON') return () => state.value;
       if (prop === 'toString') return () => String(stateDefaultPrimitive());
       if (prop === 'valueOf') return () => stateDefaultPrimitive();
+      if (typeof prop === 'string') {
+        const key = resolveKey(prop);
+        return state.value[key];
+      }
       return state.value[prop];
     },
     set(target, prop, value) {
-      // track pending change
-      state.value[prop] = value;
-      state.pendingKeys.add(String(prop));
+      if (typeof prop === 'string') {
+        const map = state.keyMap;
+        const lower = prop.toLowerCase();
+        const key = (map && map.get(lower)) || prop;
+        if (map) map.set(lower, key);
+        state.value[key] = value;
+        state.pendingKeys.add(key);
+      }
+      else {
+        state.value[prop] = value;
+        state.pendingKeys.add(String(prop));
+      }
       registry.changed.add(state);
       scheduleRender();
       return true;
     },
     has(target, prop) {
-      return String(prop) in state.value;
+      if (typeof prop === 'string') {
+        const key = resolveKey(prop);
+        return Object.prototype.hasOwnProperty.call(state.value, key);
+      }
+      return Object.prototype.hasOwnProperty.call(state.value, prop);
     },
     ownKeys() { return Reflect.ownKeys(state.value); },
     getOwnPropertyDescriptor(_, prop) {
-      return Object.getOwnPropertyDescriptor(state.value, String(prop));
+      if (typeof prop === 'string') {
+        const key = resolveKey(prop);
+        return Object.getOwnPropertyDescriptor(state.value, key);
+      }
+      return Object.getOwnPropertyDescriptor(state.value, prop);
     },
   });
 }
