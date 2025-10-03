@@ -3,6 +3,7 @@
 import { registry, runBinding, scheduleRender, recordDependency, registerCleanup, fire } from './core.js';
 import { safeEval, execute, buildCtx, preprocessExpr, unwrapRef } from './context.js';
 import { toStr, isObj, deepGet, parseDuration, structuredCloneSafe, parsePath, deepGetByPath, deepSetByPath } from './utils.js';
+import { parseOnAttribute } from './on-parser.mjs';
 import { initState } from './state.js';
 import { initSrc } from './source.js';
 
@@ -162,14 +163,7 @@ function bindModel(el, expr) {
 // jtx-on
 const periodicMap = new WeakMap(); // el -> [timerIds]
 function bindOn(el, expr, locals) {
-  // format: event: stmt; event2: stmt2; ...
-  const pairs = String(expr).split(/\s*;\s*/).filter(Boolean).map((pair) => {
-    const idx = pair.indexOf(':');
-    if (idx === -1) return null;
-    const event = pair.slice(0, idx).trim();
-    const code = pair.slice(idx + 1).trim();
-    return { event, code };
-  }).filter(Boolean);
+  const pairs = parseOnAttribute(expr);
 
   const timers = [];
   for (const { event, code } of pairs) {
@@ -208,14 +202,7 @@ function bindOn(el, expr, locals) {
 
 // jtx-on for definition elements (self-only)
 function bindOnSelf(el, expr, locals) {
-  // format: event: stmt; event2: stmt2; ...
-  const pairs = String(expr).split(/\s*;\s*/).filter(Boolean).map((pair) => {
-    const idx = pair.indexOf(':');
-    if (idx === -1) return null;
-    const event = pair.slice(0, idx).trim();
-    const code = pair.slice(idx + 1).trim();
-    return { event, code };
-  }).filter(Boolean);
+  const pairs = parseOnAttribute(expr);
 
   const timers = [];
   for (const { event, code } of pairs) {
@@ -845,6 +832,27 @@ function bindInsertList(el, forExpr) {
 
     // Seed internal state from existing DOM once (helps after hot reload or static SSR)
     seedMergeStateFromDOMOnce();
+
+    if (entries.length === 0) {
+      const hadItems = mergeState.order.length > 0;
+      const removedKeys = hadItems ? Array.from(mergeState.order) : [];
+      if (removedKeys.length) {
+        for (const rk of removedKeys) {
+          const node = mergeState.map.get(rk);
+          try { node?.remove(); } catch { /* ignore */ }
+          mergeState.map.delete(rk);
+        }
+      }
+      mergeState.order.length = 0;
+
+      const src = ownerSrc();
+      updateSlots(src?.status, false);
+
+      if (removedKeys.length) fire(el, 'remove', { keys: removedKeys });
+      if (hadItems) fire(el, 'empty', {});
+      prevCount = 0;
+      return;
+    }
 
     // Validate incoming keys: reject null/undefined/empty or duplicates in the same batch
     const seenKeys = new Set();

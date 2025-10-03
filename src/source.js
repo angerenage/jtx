@@ -3,6 +3,7 @@
 import { registry, fire, scheduleRender, registerCleanup } from './core.js';
 import { safeEval } from './context.js';
 import { deepGet, parseJSON, parseDuration } from './utils.js';
+import { parseOnAttribute } from './on-parser.mjs';
 
 export function initSrc(el) {
   const name = el.getAttribute('name');
@@ -102,18 +103,13 @@ export function initSrc(el) {
     const onAttr = el.getAttribute('jtx-on') || '';
     if (onAttr && src.kind === 'sse') {
       const std = new Set(['init', 'fetch', 'open', 'message', 'update', 'error', 'close']);
-      const parts = onAttr.split(/\s*;\s*/).filter(Boolean);
+      const pairs = parseOnAttribute(onAttr);
       const types = new Set();
 
-      for (const p of parts) {
-        const idx = p.indexOf(':');
-        if (idx === -1) continue;
-
-        const evt = p.slice(0, idx).trim();
-        if (!evt || evt.startsWith('every ')) continue;
-        if (std.has(evt)) continue;
-
-        types.add(evt);
+      for (const { event } of pairs) {
+        if (!event || event.startsWith('every ')) continue;
+        if (std.has(event)) continue;
+        types.add(event);
       }
 
       src.sseTypes = Array.from(types);
