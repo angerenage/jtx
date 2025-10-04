@@ -37,6 +37,7 @@ test('jtx-insert list strategies follow spec expectations', { concurrency: false
   ].join('');
 
   const { document, window, cleanup } = createDom(html);
+  window;
   t.after(cleanup);
 
   const replaceInsert = document.getElementById('replace');
@@ -64,7 +65,7 @@ test('jtx-insert list strategies follow spec expectations', { concurrency: false
   assert.equal(document.getElementById('replace-empty').hasAttribute('hidden'), true);
   assert.equal(replaceEvents.init, 2);
 
-  document.getElementById('replaceButton').dispatchEvent(new window.Event('click', { bubbles: true }));
+  document.getElementById('replaceButton').click();
   await flush();
 
   assert.deepEqual(directItemTexts(replaceInsert), ['Deux', 'Trois']);
@@ -75,7 +76,7 @@ test('jtx-insert list strategies follow spec expectations', { concurrency: false
   assert(mergeEvents.update.some((items) => items.includes('Deux')));
   assert.equal(mergeEvents.remove.length, 0);
 
-  document.getElementById('appendButton').dispatchEvent(new window.Event('click', { bubbles: true }));
+  document.getElementById('appendButton').click();
   await flush();
 
   assert.deepEqual(directItemTexts(replaceInsert), ['Deux', 'Trois', 'Four']);
@@ -83,7 +84,7 @@ test('jtx-insert list strategies follow spec expectations', { concurrency: false
   assert.deepEqual(mergeTextsAfterAppend, ['Deux', 'Trois', 'Four']);
   assert(mergeEvents.remove.some((keys) => keys.includes('1')));
 
-  document.getElementById('emptyButton').dispatchEvent(new window.Event('click', { bubbles: true }));
+  document.getElementById('emptyButton').click();
   await flush();
 
   assert.deepEqual(directItemTexts(replaceInsert), []);
