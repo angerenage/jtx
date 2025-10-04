@@ -4,8 +4,151 @@ import { registry, scheduleRender, fire, recordDependency } from './core.js';
 import { http } from './utils.js';
 import { refreshSource } from './source.js';
 
-export const REF_RE = /@([a-zA-Z_][\w$]*)/g;
-export const preprocessExpr = (expr) => String(expr).replace(REF_RE, 'ctx.$ref("$1")');
+const IDENT_START = /[A-Za-z_]/;
+const IDENT_PART = /[A-Za-z0-9_$]/;
+
+export function preprocessExpr(expr) {
+  const src = String(expr);
+  if (!src.includes('@')) return src;
+
+  const out = [];
+  const stack = [];
+  let mode = 'code';
+  let braceDepth = 0;
+  let i = 0;
+
+  while (i < src.length) {
+    const ch = src[i];
+
+    if (mode === 'single' || mode === 'double') {
+      out.push(ch);
+      if (ch === '\\') {
+        i += 1;
+        if (i < src.length) out.push(src[i]);
+        i += 1;
+        continue;
+      }
+      if ((mode === 'single' && ch === '\'') || (mode === 'double' && ch === '"')) {
+        const ctx = stack.pop() || { mode: 'code', braceDepth: 0 };
+        mode = ctx.mode;
+        braceDepth = ctx.braceDepth;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (mode === 'template') {
+      out.push(ch);
+      if (ch === '\\') {
+        i += 1;
+        if (i < src.length) out.push(src[i]);
+        i += 1;
+        continue;
+      }
+      if (ch === '`') {
+        const ctx = stack.pop() || { mode: 'code', braceDepth: 0 };
+        mode = ctx.mode;
+        braceDepth = ctx.braceDepth;
+        i += 1;
+        continue;
+      }
+      if (ch === '$' && src[i + 1] === '{') {
+        out.push('{');
+        stack.push({ mode: 'template', braceDepth: 0 });
+        mode = 'template_expr';
+        braceDepth = 1;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    // mode === "code" or "template_expr"
+    if (ch === '\'' || ch === '"') {
+      out.push(ch);
+      stack.push({ mode, braceDepth });
+      mode = ch === '\'' ? 'single' : 'double';
+      i += 1;
+      continue;
+    }
+
+    if (ch === '`') {
+      out.push(ch);
+      stack.push({ mode, braceDepth });
+      mode = 'template';
+      braceDepth = 0;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '/' && src[i + 1] === '/') {
+      out.push(ch, src[i + 1]);
+      i += 2;
+      while (i < src.length && src[i] !== '\n') {
+        out.push(src[i]);
+        i += 1;
+      }
+      continue;
+    }
+
+    if (ch === '/' && src[i + 1] === '*') {
+      out.push(ch, src[i + 1]);
+      i += 2;
+      while (i < src.length) {
+        const c = src[i];
+        out.push(c);
+        if (c === '*' && src[i + 1] === '/') {
+          out.push('/');
+          i += 2;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+
+    if (mode === 'template_expr') {
+      if (ch === '{') {
+        braceDepth += 1;
+        out.push(ch);
+        i += 1;
+        continue;
+      }
+      if (ch === '}') {
+        braceDepth -= 1;
+        out.push(ch);
+        i += 1;
+        if (braceDepth === 0) {
+          const ctx = stack.pop() || { mode: 'code', braceDepth: 0 };
+          mode = ctx.mode;
+          braceDepth = ctx.braceDepth;
+        }
+        continue;
+      }
+    }
+
+    if (ch === '\\' && src[i + 1] === '@') {
+      out.push('@');
+      i += 2;
+      continue;
+    }
+
+    if (ch === '@' && IDENT_START.test(src[i + 1] || '')) {
+      let j = i + 2;
+      while (j < src.length && IDENT_PART.test(src[j])) j += 1;
+      const name = src.slice(i + 1, j);
+      out.push('ctx.$ref("' + name + '")');
+      i = j;
+      continue;
+    }
+
+    out.push(ch);
+    i += 1;
+  }
+
+  return out.join('');
+}
 
 export function execute(code, ctx, extra = {}, asExpr = true) {
   const src = preprocessExpr(code);
