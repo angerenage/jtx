@@ -9,6 +9,33 @@ export const registry = {
   changed: new Set(), // deps that changed since last render
 };
 
+let htmlSanitizer = null;
+
+export function setHtmlSanitizer(fn) {
+  if (fn != null && typeof fn !== 'function') {
+    console.warn('[JTX] setHtmlSanitizer expects a function or null/undefined');
+    return;
+  }
+  htmlSanitizer = typeof fn === 'function' ? fn : null;
+}
+
+export function sanitizeHtml(value, el) {
+  const str = value == null ? '' : (typeof value === 'string' ? value : String(value));
+  if (!htmlSanitizer) return str;
+  try {
+    const result = htmlSanitizer(str, el);
+    if (result == null) return '';
+    if (typeof result === 'string') return result;
+    const Trusted = globalThis.TrustedHTML;
+    if (Trusted && result instanceof Trusted) return result;
+    return String(result);
+  }
+  catch (e) {
+    console.error('[JTX] html sanitizer error', e);
+    return '';
+  }
+}
+
 const cleanupMap = new WeakMap(); // Element -> Set<fn>
 let cleanupObserver = null;
 

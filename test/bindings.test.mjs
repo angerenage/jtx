@@ -88,3 +88,45 @@ test('bindings react to state changes as described in spec §§3.1-3.3', { concu
   assert.match(window.location.search, /theme=/);
   JTX.__testReset();
 });
+
+
+test('jtx-html uses configured sanitizer', { concurrency: false }, async (t) => {
+  const html = [
+    '<body>',
+    '  <jtx-state name="ui" raw="\'<script>boom</script>\'" optional="\'<u>start</u>\'">',
+    '    <div id="target" jtx-html="@ui.raw"></div>',
+    '    <div id="fallback" jtx-html="unknownVar"><span>safe</span></div>',
+    '    <div id="withFallback" jtx-html="@ui.optional">Default <strong>value</strong></div>',
+    '    <button id="updateRaw" jtx-on="click: @ui.raw = \'<i>changed</i>\'"></button>',
+    '    <button id="clearOptional" jtx-on="click: @ui.optional = null"></button>',
+    '  </jtx-state>',
+    '</body>',
+  ].join('');
+
+  const { document, cleanup } = createDom(html);
+  t.after(cleanup);
+
+  const JTX = await loadJTX();
+  JTX.__testReset();
+  t.after(() => JTX.setHtmlSanitizer(null));
+
+  JTX.setHtmlSanitizer((value) => value.replace(/</g, '&lt;'));
+  JTX.init(document);
+  await flush();
+
+  const target = document.getElementById('target');
+  const fallback = document.getElementById('fallback');
+  const withFallback = document.getElementById('withFallback');
+
+  assert.equal(target.innerHTML, '&lt;script&gt;boom&lt;/script&gt;');
+  assert.equal(fallback.innerHTML, '&lt;span&gt;safe&lt;/span&gt;');
+  assert.equal(withFallback.innerHTML, '&lt;u&gt;start&lt;/u&gt;');
+
+  document.getElementById('updateRaw').click();
+  await flush();
+  assert.equal(target.innerHTML, '&lt;i&gt;changed&lt;/i&gt;');
+
+  document.getElementById('clearOptional').click();
+  await flush();
+  assert.equal(withFallback.innerHTML, 'Default &lt;strong&gt;value&lt;/strong&gt;');
+});

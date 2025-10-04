@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-import { scheduleRender, registry } from './core.js';
+import { scheduleRender, registry, setHtmlSanitizer } from './core.js';
 import { bindAll } from './bindings.js';
 import { refreshSource } from './source.js';
 
@@ -10,6 +10,7 @@ const JTX = {
     scheduleRender();
   },
   refresh: refreshSource,
+  setHtmlSanitizer,
 };
 
 if (typeof window !== 'undefined') {
@@ -20,6 +21,7 @@ if (typeof window !== 'undefined') {
       registry.bindingDeps.clear();
       registry.depBindings.clear();
       registry.changed.clear();
+      setHtmlSanitizer(null);
     },
     configurable: true,
     enumerable: false,

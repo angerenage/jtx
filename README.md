@@ -129,7 +129,7 @@ Use these attributes anywhere in your HTML:
 - `jtx-if="expr"`: add/remove the element based on truthiness.
 - `jtx-show="expr"`: toggle `hidden` attribute.
 - `jtx-text="expr"`: set `textContent` (falls back to original content if `null/undefined`).
-- `jtx-html="expr"`: set `innerHTML` (you are responsible for sanitizing).
+- `jtx-html="expr"`: set `innerHTML`. Register `JTX.setHtmlSanitizer(fn)` to process the HTML before it is inserted; otherwise the value is used as-is.
 - `jtx-attr-FOO="expr"`: bind any attribute `FOO` (boolean true => present, false/null/undefined => removed).
 - `jtx-model="@state.key"`: two‑way bind form inputs/selects/textarea to state (supports nested paths like `@state.user.name`).
 - `jtx-on="event: code; other: code"`: run JS on events. Also supports timers: `every 5s: code`.
@@ -169,6 +169,10 @@ Options:
 ## Initialization Hooks
 - Auto‑init on page load. To initialize a dynamically inserted subtree: `JTX.init(element)`.
 - Attributes inside `<jtx-template>` are compiled per item when the list renders.
+
+## Sanitizing Inserted HTML
+- Call `JTX.setHtmlSanitizer(fn)` (preferably before `JTX.init`) to sanitize all HTML produced by `jtx-html`.
+- The sanitizer receives `(html, element)` and should return the string (or TrustedHTML) that JTX assigns. Returning `null`/`undefined` clears the content.
 
 ## Tips
 - Keep expressions simple and safe; they run in the browser.

@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-import { registry, runBinding, scheduleRender, recordDependency, registerCleanup, fire } from './core.js';
+import { registry, runBinding, scheduleRender, recordDependency, registerCleanup, fire, sanitizeHtml } from './core.js';
 import { safeEval, execute, buildCtx, preprocessExpr, unwrapRef } from './context.js';
 import { toStr, isObj, deepGet, parseDuration, structuredCloneSafe, parsePath, deepGetByPath, deepSetByPath } from './utils.js';
 import { parseOnAttribute } from './on-parser.mjs';
@@ -51,8 +51,8 @@ function bindHtml(el, expr, locals) {
   const fallback = el.innerHTML;
   function update() {
     const v = safeEval(expr, el, locals);
-    if (v === undefined || v === null) el.innerHTML = fallback;
-    else el.innerHTML = toStr(v);
+    if (v === undefined || v === null) el.innerHTML = sanitizeHtml(fallback, el);
+    else el.innerHTML = sanitizeHtml(toStr(v), el);
   }
   runBinding({ el, type: 'html', update });
 }
@@ -566,7 +566,7 @@ function bindInsertList(el, forExpr) {
       case 'jtx-html':
         if (usesLocal) {
           const v = evalWithLocalOrder(expr, el, locals, localNames);
-          el.innerHTML = v == null ? '' : toStr(v);
+          el.innerHTML = sanitizeHtml(v == null ? '' : toStr(v), el);
           el.removeAttribute(attrName);
         }
         else {

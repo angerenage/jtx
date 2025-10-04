@@ -209,7 +209,7 @@ The internal state of a `<jtx-insert>` – its current map or list – is **not 
 - `jtx-if="<expr>"`: if the expression is truthy, the element remains in the DOM; if falsy, jtx removes the element from the DOM entirely (not merely hides it). Use this to include or exclude markup.
 - `jtx-show="<expr>"`: toggles the hidden attribute on the element. Use this to hide an element without removing it (e.g. to preserve focus).
 - `jtx-text="<expr>"`: assigns the expression's result (converted to a string) to textContent. Equivalent to `<jtx-insert text="…">` but directly on the element.  
-- `jtx-html="<expr>"`: inserts the expression's result as HTML inside the element. You must ensure that the HTML is safe to insert.
+- `jtx-html="<expr>"`: inserts the expression's result as HTML inside the element. Registering `JTX.setHtmlSanitizer(fn)` lets you sanitize the string before insertion; otherwise the value is used verbatim.
 - `jtx-attr-*="<expr>"`: sets the real HTML attribute `*` to the evaluated result. If the result is false, null or undefined, jtx removes the attribute. If the result is true, jtx sets a boolean attribute with no value.
 
 ### **3.2 Model binding**
@@ -273,7 +273,7 @@ For `<jtx-insert>`, if evaluation of for or key throws or yields duplicate/undef
 
 ## **6. Security considerations**
 
-In version 1, expressions and handlers are evaluated with eval. You must ensure that the data and expressions you use are trustworthy. In future versions a restricted interpreter may be used. Always sanitise untrusted HTML inserted via jtx-html. Do not reference global objects like window or document in expressions.
+In version 1, expressions and handlers are evaluated with eval. You must ensure that the data and expressions you use are trustworthy. In future versions a restricted interpreter may be used. Configure `JTX.setHtmlSanitizer(fn)` to enforce sanitisation for `jtx-html` outputs, and continue to avoid injecting untrusted expressions. Do not reference global objects like window or document in expressions.
 
 ## **7. Examples**
 
