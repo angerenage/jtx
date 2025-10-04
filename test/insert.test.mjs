@@ -93,3 +93,78 @@ test('jtx-insert list strategies follow spec expectations', { concurrency: false
   assert(mergeEvents.empty >= 1);
   JTX.__testReset();
 });
+
+test('initialises template-root jtx-state instances per item', { concurrency: false }, async (t) => {
+  const html = [
+    '<body>',
+    '  <jtx-state name="ui" rows="[{value:1}]">',
+    '    <jtx-insert id="rows" for="item in @ui.rows" key="item.value">',
+    '      <jtx-template>',
+    '        <jtx-state name="row" count="item.value">',
+    '          <li>',
+    '            <span class="row-value" jtx-text="@row.count"></span>',
+    '            <button class="row-inc" jtx-on="click: @row.count++"></button>',
+    '          </li>',
+    '        </jtx-state>',
+    '      </jtx-template>',
+    '    </jtx-insert>',
+    '  </jtx-state>',
+    '</body>',
+  ].join('');
+
+  const { document, cleanup } = createDom(html);
+  t.after(cleanup);
+
+  const JTX = await loadJTX();
+  JTX.__testReset();
+  JTX.init(document);
+  await flush();
+
+  const stateEl = document.querySelector('jtx-state[name="row"]');
+  assert(stateEl);
+  assert(stateEl.__jtxState);
+  assert.equal(document.querySelector('.row-value').textContent, '1');
+  JTX.__testReset();
+});
+
+test('scoped template states emit update events when mutated', { concurrency: false }, async (t) => {
+  const html = [
+    '<body>',
+    '  <jtx-state name="ui" rows="[{value:1}]">',
+    '    <jtx-insert id="rows" for="item in @ui.rows" key="item.value">',
+    '      <jtx-template>',
+    '        <jtx-state name="row" count="item.value">',
+    '          <li>',
+    '            <span class="row-value" jtx-text="@row.count"></span>',
+    '            <button class="row-inc" jtx-on="click: @row.count++"></button>',
+    '          </li>',
+    '        </jtx-state>',
+    '      </jtx-template>',
+    '    </jtx-insert>',
+    '  </jtx-state>',
+    '</body>',
+  ].join('');
+
+  const { document, cleanup } = createDom(html);
+  t.after(cleanup);
+
+  const JTX = await loadJTX();
+  JTX.__testReset();
+  JTX.init(document);
+  await flush();
+
+  const stateEl = document.querySelector('jtx-state[name="row"]');
+  assert(stateEl);
+  const updates = [];
+  stateEl.addEventListener('update', (ev) => updates.push(ev.detail));
+
+  const btn = document.querySelector('.row-inc');
+  btn.click();
+  await flush();
+
+  assert.equal(document.querySelector('.row-value').textContent, '2');
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0].keys, ['count']);
+  assert.equal(stateEl.__jtxState.pendingKeys.size, 0);
+  JTX.__testReset();
+});

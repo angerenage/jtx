@@ -90,6 +90,30 @@ test('bindings react to state changes as described in spec §§3.1-3.3', { concu
 });
 
 
+test('treats literal @ characters in expressions as plain text', { concurrency: false }, async (t) => {
+  const html = [
+    '<body>',
+    '  <jtx-state name="ui" literal="\'foo@bar.com\'">',
+    '    <span id="stateLiteral" jtx-text="@ui.literal"></span>',
+    '  </jtx-state>',
+    '  <span id="directLiteral" jtx-text="\'foo@bar.com\'"></span>',
+    '</body>',
+  ].join('');
+
+  const { document, cleanup } = createDom(html);
+  t.after(cleanup);
+
+  const JTX = await loadJTX();
+  JTX.__testReset();
+  JTX.init(document);
+  await flush();
+
+  assert.equal(document.getElementById('stateLiteral').textContent, 'foo@bar.com');
+  assert.equal(document.getElementById('directLiteral').textContent, 'foo@bar.com');
+  JTX.__testReset();
+});
+
+
 test('jtx-html uses configured sanitizer', { concurrency: false }, async (t) => {
   const html = [
     '<body>',
