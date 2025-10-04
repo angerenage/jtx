@@ -665,7 +665,15 @@ function bindInsertList(el, forExpr) {
 
     // Initialize any scoped states within this instance before binding
     try {
-      const stateNodes = Array.from(node.querySelectorAll('jtx-state'));
+      const stateNodes = [];
+      if (node instanceof Element && node.tagName && node.tagName.toLowerCase() === 'jtx-state') {
+        stateNodes.push(node);
+      }
+      if (typeof node.querySelectorAll === 'function') {
+        for (const stEl of Array.from(node.querySelectorAll('jtx-state'))) {
+          if (stEl !== node) stateNodes.push(stEl);
+        }
+      }
       const restoreArr = Array.isArray(restoreStates) ? restoreStates : null;
       for (let i = 0; i < stateNodes.length; i++) {
         const stEl = stateNodes[i];

@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-import { registry, fire, parseUrlParams } from './core.js';
+import { registry, fire, parseUrlParams, registerCleanup } from './core.js';
 import { execute, buildCtx } from './context.js';
 import { structuredCloneSafe } from './utils.js';
 
@@ -88,8 +88,20 @@ export function initState(el, locals, options) {
   // Expose on element for scoped lookup
   try { Object.defineProperty(el, '__jtxState', { value: st, configurable: true }); } catch { /* ignore */ }
 
-  if (register) {
-    registry.states.set(name, st);
-  }
+  if (register) registry.states.set(name, st);
+  else registry.scopedStates.add(st);
+
+  try {
+    registerCleanup(el, () => {
+      if (register) {
+        const current = registry.states.get(name);
+        if (current === st) registry.states.delete(name);
+      }
+      else {
+        registry.scopedStates.delete(st);
+      }
+    });
+  } catch { /* ignore */ }
+
   fire(el, 'init', { name, value: structuredCloneSafe(st.value) });
 }

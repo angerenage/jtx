@@ -2,6 +2,7 @@
 
 export const registry = {
   states: new Map(), // name -> { name, el, value, persistedKeys:Set, urlKeys:Set, listeners:Set, pendingKeys:Set }
+  scopedStates: new Set(), // unregistered scoped states
   srcs: new Map(),   // name -> { name, el, value, url, status, error, controller, kind, timers:[], io:null }
   // Dependency tracking
   bindingDeps: new Map(), // binding -> Set(deps)
@@ -119,8 +120,8 @@ function runBindingsFor(deps) {
 }
 
 export function flushStateUpdates() {
-  for (const st of registry.states.values()) {
-    if (st.pendingKeys.size === 0) continue;
+  const processState = (st) => {
+    if (!st || st.pendingKeys.size === 0) return;
 
     for (const key of st.pendingKeys) {
       if (st.persistedKeys.has(key)) {
@@ -133,7 +134,10 @@ export function flushStateUpdates() {
     if (st.urlKeys.size) syncUrlFromState(st);
     fire(st.el, 'update', { name: st.name, keys: Array.from(st.pendingKeys), value: st.value });
     st.pendingKeys.clear();
-  }
+  };
+
+  for (const st of registry.states.values()) processState(st);
+  for (const st of registry.scopedStates) processState(st);
 }
 
 let renderQueued = false;

@@ -17,6 +17,7 @@ if (typeof window !== 'undefined') {
   Object.defineProperty(JTX, '__testReset', {
     value() {
       registry.states.clear();
+      registry.scopedStates.clear();
       registry.srcs.clear();
       registry.bindingDeps.clear();
       registry.depBindings.clear();
