@@ -63,6 +63,8 @@ export function initSrc(el) {
     sseTypes: [], // extra SSE event types parsed from jtx-on
   };
 
+  try { Object.defineProperty(el, '__jtxSrc', { value: src, configurable: true }); } catch { /* ignore */ }
+
   for (const child of el.children) {
     const tag = child.tagName?.toLowerCase();
     if (tag === 'jtx-loading') {
@@ -125,6 +127,7 @@ export function initSrc(el) {
     } catch { /* ignore */ }
     try { if (src.observer) src.observer.disconnect(); } catch { /* ignore */ }
     try { closeStream(src); } catch { /* ignore */ }
+    try { delete el.__jtxSrc; } catch { /* ignore */ }
   });
 }
 

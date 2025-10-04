@@ -1,7 +1,7 @@
 /* eslint-env browser */
 
 import { registry, runBinding, scheduleRender, recordDependency, registerCleanup, fire, sanitizeHtml } from './core.js';
-import { safeEval, execute, buildCtx, preprocessExpr, unwrapRef } from './context.js';
+import { safeEval, execute, buildCtx, preprocessExpr, unwrapRef, resolveState } from './context.js';
 import { toStr, isObj, deepGet, parseDuration, structuredCloneSafe, parsePath, deepGetByPath, deepSetByPath } from './utils.js';
 import { parseOnAttribute } from './on-parser.mjs';
 import { initState } from './state.js';
@@ -132,7 +132,7 @@ function bindModel(el, expr) {
   }
 
   function pull() {
-    const st = registry.states.get(stateName);
+    const st = resolveState(stateName, el);
     if (!st) return;
     recordDependency(st);
     const v = Array.isArray(pathSegs) && pathSegs.length ? deepGetByPath(st.value, pathSegs) : deepGet(st.value, key);
@@ -140,7 +140,7 @@ function bindModel(el, expr) {
   }
 
   function push() {
-    const st = registry.states.get(stateName);
+    const st = resolveState(stateName, el);
     if (!st) return;
     const newVal = readModel();
     if (Array.isArray(pathSegs) && pathSegs.length > 1) {

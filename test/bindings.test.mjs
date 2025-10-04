@@ -130,3 +130,160 @@ test('jtx-html uses configured sanitizer', { concurrency: false }, async (t) => 
   await flush();
   assert.equal(withFallback.innerHTML, 'Default &lt;strong&gt;value&lt;/strong&gt;');
 });
+
+
+test('state references are scoped to their <jtx-state> descendants', { concurrency: false }, async (t) => {
+  const html = [
+    '<body>',
+    '  <jtx-state name="ui" counter="0">',
+    '    <section>',
+    '      <span id="insideValue" jtx-text="@ui.counter"></span>',
+    '      <button id="insideInc" jtx-on="click: @ui.counter++"></button>',
+    '    </section>',
+    '  </jtx-state>',
+    '  <section>',
+    '    <span id="outsideValue" jtx-text="@ui.counter">fallback</span>',
+    '    <button id="outsideInc" jtx-on="click: @ui.counter++"></button>',
+    '  </section>',
+    '</body>'
+  ].join('');
+
+  const { document, cleanup } = createDom(html);
+  t.after(cleanup);
+
+  const warnMock = t.mock.method(console, 'warn');
+
+  const JTX = await loadJTX();
+  JTX.__testReset();
+
+  JTX.init(document);
+  await flush();
+
+  const inside = document.getElementById('insideValue');
+  const outside = document.getElementById('outsideValue');
+
+  assert.equal(inside.textContent, '0');
+  assert.equal(outside.textContent, 'fallback');
+
+  document.getElementById('outsideInc').click();
+  await flush();
+
+  const stateEl = document.querySelector('jtx-state');
+  assert(stateEl);
+  const state = stateEl.__jtxState;
+  assert(state);
+  assert.equal(state.value.counter, 0);
+  assert.equal(inside.textContent, '0');
+
+  document.getElementById('insideInc').click();
+  await flush();
+
+  assert.equal(state.value.counter, 1);
+  assert.equal(inside.textContent, '1');
+  assert.equal(outside.textContent, 'fallback');
+
+  assert.ok(warnMock.mock.calls.some((call) => String(call.arguments[0]).includes('Unknown reference @ui')));
+
+  JTX.__testReset();
+});
+
+test('source references are scoped to their <jtx-src> descendants', { concurrency: false }, async (t) => {
+  const html = [
+    '<body>',
+    '  <jtx-src name="orders" url="/api/orders" fetch="manual">',
+    '    <span id="insideStatus" jtx-text="@orders.$status"></span>',
+    '  </jtx-src>',
+    '  <span id="outsideStatus" jtx-text="@orders.$status">status</span>',
+    '</body>'
+  ].join('');
+
+  const { document, cleanup } = createDom(html);
+  t.after(cleanup);
+
+  const warnMock = t.mock.method(console, 'warn');
+
+  const JTX = await loadJTX();
+  JTX.__testReset();
+
+  JTX.init(document);
+  await flush();
+
+  const inside = document.getElementById('insideStatus');
+  const outside = document.getElementById('outsideStatus');
+
+  assert.equal(inside.textContent, 'idle');
+  assert.equal(outside.textContent, 'status');
+
+  assert.ok(warnMock.mock.calls.some((call) => String(call.arguments[0]).includes('Unknown reference @orders')));
+
+  JTX.__testReset();
+});
+
+
+test('state references traverse shadow roots', { concurrency: false }, async (t) => {
+  const html = [
+    '<body>',
+    '  <jtx-state name="ui" counter="1">',
+    '    <button id="shadowInc" jtx-on="click: @ui.counter++"></button>',
+    '    <div id="shadowHost"></div>',
+    '  </jtx-state>',
+    '</body>'
+  ].join('');
+
+  const { document, cleanup } = createDom(html);
+  t.after(cleanup);
+
+  const warnMock = t.mock.method(console, 'warn');
+
+  const JTX = await loadJTX();
+  JTX.__testReset();
+  JTX.init(document);
+  await flush();
+
+  const host = document.getElementById('shadowHost');
+  const shadow = host.attachShadow({ mode: 'open' });
+  shadow.innerHTML = '<span id="shadowValue" jtx-text="@ui.counter"></span>';
+  JTX.init(shadow);
+  await flush();
+
+  assert.equal(shadow.querySelector('#shadowValue').textContent, '1');
+
+  document.getElementById('shadowInc').click();
+  await flush();
+
+  assert.equal(shadow.querySelector('#shadowValue').textContent, '2');
+  assert.ok(!warnMock.mock.calls.some((call) => String(call.arguments[0]).includes('Unknown reference @ui')));
+
+  JTX.__testReset();
+});
+
+test('source references traverse shadow roots', { concurrency: false }, async (t) => {
+  const html = [
+    '<body>',
+    '  <jtx-src name="orders" url="/api/orders" fetch="manual">',
+    '    <div id="srcShadowHost"></div>',
+    '  </jtx-src>',
+    '</body>'
+  ].join('');
+
+  const { document, cleanup } = createDom(html);
+  t.after(cleanup);
+
+  const warnMock = t.mock.method(console, 'warn');
+
+  const JTX = await loadJTX();
+  JTX.__testReset();
+  JTX.init(document);
+  await flush();
+
+  const host = document.getElementById('srcShadowHost');
+  const shadow = host.attachShadow({ mode: 'open' });
+  shadow.innerHTML = '<span id="srcShadowValue" jtx-text="@orders.$status"></span>';
+  JTX.init(shadow);
+  await flush();
+
+  assert.equal(shadow.querySelector('#srcShadowValue').textContent, 'idle');
+  assert.ok(!warnMock.mock.calls.some((call) => String(call.arguments[0]).includes('Unknown reference @orders')));
+
+  JTX.__testReset();
+});

@@ -135,14 +135,94 @@ export function makeSrcRef(src) {
   });
 }
 
-function findNearestLocalState(el, name) {
+function nextScopeAncestor(node) {
   try {
-    let cur = el instanceof Element ? el : null;
-    while (cur) {
-      if (cur.__jtxState && cur.__jtxState.name === name) return cur.__jtxState;
-      cur = cur.parentElement;
+    if (!node) return null;
+    if (node.parentElement) return node.parentElement;
+    const parentNode = node.parentNode;
+    if (parentNode && parentNode !== node) {
+      if (parentNode instanceof Element) return parentNode;
+      if (parentNode.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+        const frag = parentNode;
+        if (frag.host instanceof Element) return frag.host;
+        if (frag.parentNode instanceof Element) return frag.parentNode;
+      }
+    }
+    if (typeof node.getRootNode === 'function') {
+      const root = node.getRootNode();
+      if (root && root !== node && typeof ShadowRoot !== 'undefined' && root instanceof ShadowRoot && root.host instanceof Element) {
+        return root.host;
+      }
     }
   } catch { /* ignore */ }
+  return null;
+}
+
+function isWithinScope(descendant, owner) {
+  if (!descendant || !owner) return false;
+  if (descendant === owner) return true;
+  try {
+    let cur = descendant instanceof Element ? descendant : (descendant.parentElement || null);
+    const seen = new Set();
+    while (cur) {
+      if (cur === owner) return true;
+      if (seen.has(cur)) break;
+      seen.add(cur);
+      cur = nextScopeAncestor(cur);
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+function findNearestLocalState(el, name) {
+  try {
+    let cur = el instanceof Element ? el : ((el && el.parentElement) || null);
+    const seen = new Set();
+    while (cur) {
+      if (cur.__jtxState && cur.__jtxState.name === name) return cur.__jtxState;
+      if (seen.has(cur)) break;
+      seen.add(cur);
+      cur = nextScopeAncestor(cur);
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function findNearestLocalSrc(el, name) {
+  try {
+    let cur = el instanceof Element ? el : ((el && el.parentElement) || null);
+    const seen = new Set();
+    while (cur) {
+      const meta = cur.__jtxSrc;
+      if (meta && meta.name === name) return meta;
+      if (seen.has(cur)) break;
+      seen.add(cur);
+      cur = nextScopeAncestor(cur);
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+export function resolveState(name, currentEl) {
+  if (!name) return null;
+  const local = currentEl ? findNearestLocalState(currentEl, name) : null;
+  if (local) return local;
+  const st = registry.states.get(name);
+  if (!st) return null;
+  if (!currentEl) return null;
+  if (isWithinScope(currentEl, st.el)) return st;
+  if (currentEl && typeof currentEl.isConnected === 'boolean' && !currentEl.isConnected) return st;
+  return null;
+}
+
+function resolveSrc(name, currentEl) {
+  if (!name || !currentEl) return null;
+  const local = findNearestLocalSrc(currentEl, name);
+  if (local) return local;
+  const src = registry.srcs.get(name);
+  if (!src) return null;
+  if (isWithinScope(currentEl, src.el)) return src;
+  if (currentEl && typeof currentEl.isConnected === 'boolean' && !currentEl.isConnected) return src;
   return null;
 }
 
@@ -154,20 +234,13 @@ export function buildCtx(currentEl, currentEvent) {
         return this.$locals[name];
       }
       // Then resolve nearest scoped state in the DOM tree
-      if (currentEl) {
-        const local = findNearestLocalState(currentEl, name);
-        if (local) {
-          recordDependency(local);
-          return makeStateRef(local);
-        }
-      }
-      if (registry.states.has(name)) {
-        const st = registry.states.get(name);
+      const st = resolveState(name, currentEl);
+      if (st) {
         recordDependency(st);
         return makeStateRef(st);
       }
-      if (registry.srcs.has(name)) {
-        const src = registry.srcs.get(name);
+      const src = resolveSrc(name, currentEl);
+      if (src) {
         recordDependency(src);
         return makeSrcRef(src);
       }
